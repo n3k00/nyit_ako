@@ -1,50 +1,38 @@
-import { Bot, webhookCallback } from "grammy";
-import { config } from "./config.ts";
-import { initLocalDB } from "./db/local.ts";
-import { messageCacheMiddleware } from "./handlers/middleware.ts";
-import { setupMentionHandler } from "./handlers/mention.ts";
-import { setupReplyHandler } from "./handlers/reply.ts";
-import { setupCommandHandlers } from "./handlers/commands.ts";
+import { webhookCallback } from "grammy";
+import { createBot } from "./app.ts";
+import { loadConfig } from "./config.ts";
+import { logger } from "./logging.ts";
 
-await initLocalDB();
+const config = loadConfig();
+const bot = await createBot(config);
 
-const bot = new Bot(config.botToken);
-
-bot.use(messageCacheMiddleware);
-
-setupCommandHandlers(bot);
-setupMentionHandler(bot);
-setupReplyHandler(bot);
-
-bot.catch((err) => {
-  console.error("Bot error:", err);
-});
-
-const isWebhook = !!Deno.env.get("WEBHOOK_URL");
-
-if (isWebhook) {
+if (config.startupCheckOnly) {
+  logger.info("bot_startup_check_ok", { username: config.botUsername });
+} else if (config.webhookUrl) {
   const handleUpdate = webhookCallback(bot, "std/http");
-  Deno.serve({ port: config.webhookPort || 8080 }, async (req) => {
+  Deno.serve({ port: config.webhookPort }, (req) => {
     const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({ ok: true, bot: config.botUsername });
+    }
     if (url.pathname === "/webhook") {
       return handleUpdate(req);
     }
     return new Response("OK", { status: 200 });
   });
 
-  const webhookUrl = Deno.env.get("WEBHOOK_URL")!;
   const webhookInfo = await bot.api.getWebhookInfo();
-  if (webhookInfo.url !== webhookUrl) {
-    await bot.api.setWebhook(webhookUrl, {
+  if (webhookInfo.url !== config.webhookUrl) {
+    await bot.api.setWebhook(config.webhookUrl, {
       allowed_updates: ["message", "edited_message"],
     });
-    console.log(`Webhook set to ${webhookUrl}`);
   }
-} else {
-  console.log("Starting polling mode...");
-  bot.start({
-    allowed_updates: ["message", "edited_message"],
+  logger.info("bot_started", {
+    mode: "webhook",
+    username: config.botUsername,
+    port: config.webhookPort,
   });
+} else {
+  logger.info("bot_started", { mode: "polling", username: config.botUsername });
+  bot.start({ allowed_updates: ["message", "edited_message"] });
 }
-
-console.log(`Bot @${config.botUsername} started`);

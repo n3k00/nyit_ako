@@ -3,7 +3,10 @@
 
 # Secrets
 .env
+.env.*
+!.env.example
 data/
+private_context/
 
 # Logs and runtime
 bot.log

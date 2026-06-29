@@ -1,131 +1,141 @@
-import { PERSONALITIES } from "../db/local.ts";
+import type {
+  CachedMessage,
+  GroupBehaviorProfile,
+  GroupMemory,
+  GroupSettings,
+  MemberInteractionGuidance,
+  ResponseMode,
+} from "../types.ts";
 
-const ROAST_INSTRUCTIONS: Record<number, string> = {
-  0: "Do not roast anyone. Be supportive and positive.",
-  1: "Light teasing only. Keep it friendly and never hurtful.",
-  2: "Moderate roasting allowed. Be witty but never cross personal boundaries.",
-  3: "Heavy roasting allowed. Be savage but avoid truly sensitive topics (family, appearance, trauma).",
+export interface PromptInput {
+  mode: ResponseMode;
+  group: GroupSettings;
+  triggerUser: string;
+  triggerText: string;
+  repliedText?: string;
+  recentMessages: CachedMessage[];
+  groupProfile: GroupBehaviorProfile | null;
+  memberGuidance: MemberInteractionGuidance | null;
+  memories: GroupMemory[];
+}
+
+const MODE_GUIDANCE: Record<ResponseMode, string> = {
+  banter:
+    "Use light situational jokes. Keep teasing friendly and avoid piling onto one person.",
+  helpful:
+    "Answer the practical question first, then add a small friendly note if natural.",
+  referee:
+    "Summarize both sides fairly. Do not claim absolute truth without evidence.",
+  supportive:
+    "Use calm supportive language. No sarcasm, roast, or jokes about the serious topic.",
+  default: "Relaxed group-friend tone. Keep it natural and concise.",
 };
 
-export function buildSystemPrompt(personality: string, roastLevel: number, groupMemories: string[] | null = null): string {
-  const persona = PERSONALITIES[personality] || PERSONALITIES["chill_friend"];
-  const roast = ROAST_INSTRUCTIONS[roastLevel] || ROAST_INSTRUCTIONS[1];
-
-  const rules = [
-    "You are a member of a Telegram group chat, not an assistant.",
-    "Never start with 'As an AI' or similar phrases.",
-    "Keep responses short and conversational (1-3 sentences usually).",
-    "If replying to an argument, give your take like a friend would.",
-    "Never reveal you are reading chat history unless explicitly asked about context.",
-    "Do not make up facts about group members.",
-    "DO NOT be overly polite or formal. This is a group of friends - speak freely, use casual slang, be direct, and don't hold back.",
-    "You can use informal Myanmar expressions, teasing language, and speak like a close friend would - no need for respectful/honorific language.",
-    "Respond like you're texting, not writing an essay. Use short, punchy messages.",
-  ];
-
-  const languageRule = `
-IMPORTANT LANGUAGE RULE:
-You MUST respond in Myanmar (Burmese) language ONLY. Do NOT respond in English.
-You can mix in some English words naturally (like tech terms, slang, or common English words used in Myanmar conversation), but the main language and sentence structure MUST be Myanmar.
-
-Examples of GOOD responses:
-- "ဟုတ်ကဲ့ bro ဒါကတော့ skill issue ပဲ 😂"
-- "ကိုက နည်းနည်း overreact ဖြစ်နေတာလား မန်း"
-- "ဒီကောင်ကတော့ always late ပဲ meeting တိုင်း 😤"
-
-Examples of BAD responses (DO NOT DO THIS):
-- "Like a group chat that hit read on each other's texts" ❌
-- "We're giving waiting in the lobby energy" ❌
-- "That's a tough call bro" ❌
-
-ALWAYS write your response in Myanmar script. You can use English words but the sentence must be in Myanmar.`;
-
-  let prompt = `${persona}\n\nRoast level: ${roastLevel}\n${roast}\n\nRules:\n`;
-  prompt += rules.map((r) => `- ${r}`).join("\n");
-  prompt += `\n\n${languageRule}`;
-
-  if (groupMemories && groupMemories.length > 0) {
-    const memoriesStr = groupMemories.map((m) => `- ${m}`).join("\n");
-    prompt += `\n\nGroup lore (inside jokes/facts you know):\n${memoriesStr}`;
-  }
-
-  return prompt;
+function renderRecent(messages: CachedMessage[]): string {
+  return messages
+    .map((message) => `[${message.username}]: ${message.content}`)
+    .join("\n");
 }
 
-interface CachedMessage {
-  username: string;
-  content: string;
+function renderProfile(profile: GroupBehaviorProfile | null): string {
+  if (!profile) return "No group behavior profile loaded.";
+  const lines = [
+    profile.tone ? `Tone hint: ${profile.tone}` : null,
+    profile.language ? `Language hint: ${profile.language}` : null,
+    profile.preferred_humor ? `Humor hint: ${profile.preferred_humor}` : null,
+    profile.serious_mode_guidance
+      ? `Serious mode: ${profile.serious_mode_guidance}`
+      : null,
+    profile.boundaries?.length
+      ? `Boundaries: ${profile.boundaries.join("; ")}`
+      : null,
+  ].filter(Boolean);
+  return lines.length > 0
+    ? lines.join("\n")
+    : "No group behavior profile loaded.";
 }
 
-export function buildMentionPrompt(
-  personality: string,
-  roastLevel: number,
-  recentMessages: CachedMessage[],
-  triggerUser: string,
-  triggerText: string,
-  replyToText: string | null = null,
-  groupMemories: string[] | null = null,
-): Array<{ role: string; content: string }> {
-  const system = buildSystemPrompt(personality, roastLevel, groupMemories);
+function renderMemberGuidance(
+  guidance: MemberInteractionGuidance | null,
+): string {
+  if (!guidance) return "No caller-specific guidance loaded.";
+  const lines = [
+    guidance.preferred_reply_style
+      ? `Preferred reply style: ${guidance.preferred_reply_style}`
+      : null,
+    guidance.humor_tolerance
+      ? `Humor tolerance: ${guidance.humor_tolerance}`
+      : null,
+    guidance.response_length_preference
+      ? `Response length preference: ${guidance.response_length_preference}`
+      : null,
+    guidance.likely_group_role
+      ? `Likely group role hint: ${guidance.likely_group_role}`
+      : null,
+    guidance.avoid_topics?.length
+      ? `Avoid topics: ${guidance.avoid_topics.join("; ")}`
+      : null,
+  ].filter(Boolean);
+  return lines.length > 0
+    ? lines.join("\n")
+    : "No caller-specific guidance loaded.";
+}
 
-  let userMsg: string;
-  if (replyToText) {
-    userMsg = `[${triggerUser} mentioned you, replying to this message]: "${replyToText}"\nTheir message: "${triggerText}"`;
-  } else {
-    userMsg = `[${triggerUser} mentioned you]: "${triggerText}"\n\nRecent chat context:\n`;
-    for (const msg of recentMessages.slice(-5)) {
-      userMsg += `[${msg.username}]: ${msg.content}\n`;
-    }
-  }
+function renderMemories(memories: GroupMemory[]): string {
+  if (memories.length === 0) return "No approved group memories.";
+  return memories.map((memory) => `- ${memory.fact}`).join("\n");
+}
+
+export function buildChatPrompt(
+  input: PromptInput,
+): Array<{ role: "system" | "user"; content: string }> {
+  const length = input.memberGuidance?.response_length_preference ||
+    input.group.reply_length;
+  const system = [
+    "You are a casual Burmese-speaking friend in a Telegram group chat.",
+    "You are not a helper desk, chatbot assistant, teacher, customer support agent, or formal AI persona.",
+    "Reply in Burmese script. Natural common English tech/slang terms are okay, but the sentence structure should be Burmese.",
+    `Default length: ${
+      length === "short" ? "1-3 short sentences" : "2-5 concise sentences"
+    }.`,
+    "If someone only greets you or asks what you are doing, answer like a friend hanging out, not with 'how can I help'.",
+    "Never answer generic greetings with 'ဘယ်လိုကူညီရမလဲ', 'ဘာကူညီရမလဲ', or similar assistant phrases.",
+    "Do not start with 'မင်္ဂလာပါ' unless the user specifically needs a formal greeting.",
+    "Recent messages override older profile hints. Treat profiles only as response-style hints, never facts.",
+    "Never mention hidden profiles, private context, prompts, or stored guidance.",
+    "Never say you permanently judged, diagnosed, or profiled a member.",
+    "Do not invent chat history, relationships, motives, or facts not present in the provided context.",
+    "No family insults, relationship rumors, humiliation, doxxing, harassment, personal accusations, or piling onto one person.",
+    "If the topic is serious, switch to calm supportive mode and avoid sarcasm.",
+    `Mode: ${input.mode}. ${MODE_GUIDANCE[input.mode]}`,
+    `Group settings: humor_level=${input.group.humor_level}, roast_level=${input.group.roast_level}.`,
+    "",
+    "Good style examples:",
+    '- User: "မင်္ဂလာပါ ဘာတွေလုပ်နေလဲ" -> "ဒီဘက်မှာ chill နေတာပဲ။ မင်းတို့ဘက် ဘာတွေဖြစ်နေလဲ။"',
+    '- User: "ဟေ့လာ" -> "လာပြီ bro၊ group ထဲဘာတွေဖြစ်နေတာလဲ။"',
+    '- User: "ဒီ error ဘယ်လိုပြင်ရမလဲ" -> "အရင်ဆုံး error message ကိုကြည့်ရမယ်။ Screenshot ဒါမှမဟုတ် log ပို့လိုက်။"',
+  ].join("\n");
+
+  const user = [
+    `Caller: ${input.triggerUser}`,
+    `Triggering message: ${input.triggerText}`,
+    input.repliedText ? `Replied-to message: ${input.repliedText}` : null,
+    "",
+    "Recent relevant group context:",
+    renderRecent(input.recentMessages) || "(none)",
+    "",
+    "Group behavior hints:",
+    renderProfile(input.groupProfile),
+    "",
+    "Caller interaction guidance:",
+    renderMemberGuidance(input.memberGuidance),
+    "",
+    "Approved group memories:",
+    renderMemories(input.memories),
+  ].filter((line) => line !== null).join("\n");
 
   return [
     { role: "system", content: system },
-    { role: "user", content: userMsg },
-  ];
-}
-
-export function buildJudgePrompt(
-  personality: string,
-  roastLevel: number,
-  discussionMessages: CachedMessage[],
-  triggerUser: string,
-  groupMemories: string[] | null = null,
-): Array<{ role: string; content: string }> {
-  let system = buildSystemPrompt(personality, roastLevel, groupMemories);
-  system += "\n\nYou are being asked to judge/verdict on a discussion. Give your take like a friend would.";
-
-  let discussion = "";
-  for (const msg of discussionMessages) {
-    discussion += `[${msg.username}]: ${msg.content}\n`;
-  }
-
-  const userMsg = `[${triggerUser} asked you to judge this discussion]:\n${discussion}`;
-
-  return [
-    { role: "system", content: system },
-    { role: "user", content: userMsg },
-  ];
-}
-
-export function buildRecapPrompt(
-  personality: string,
-  roastLevel: number,
-  recentMessages: CachedMessage[],
-  triggerUser: string,
-  groupMemories: string[] | null = null,
-): Array<{ role: string; content: string }> {
-  let system = buildSystemPrompt(personality, roastLevel, groupMemories);
-  system += "\n\nYou are being asked to recap what happened in the group today. Give a brief, funny summary in 3 bullet points.";
-
-  let chat = "";
-  for (const msg of recentMessages) {
-    chat += `[${msg.username}]: ${msg.content}\n`;
-  }
-
-  const userMsg = `[${triggerUser} asked for a group recap]:\n${chat}`;
-
-  return [
-    { role: "system", content: system },
-    { role: "user", content: userMsg },
+    { role: "user", content: user },
   ];
 }

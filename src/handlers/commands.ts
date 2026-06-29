@@ -1,249 +1,237 @@
-import { Bot } from "grammy";
-import { config } from "../config.ts";
-import { getOrCreateGroup, updateGroup, checkRateLimit, addMemory, getMemories, PERSONALITIES } from "../db/local.ts";
-import { getRecentMessages } from "../services/cache.ts";
-import { buildRecapPrompt, buildJudgePrompt } from "../services/prompt.ts";
-import { callMimo, startTypingLoop } from "../services/llm.ts";
-import { checkSafety, sanitizeResponse } from "../services/safety.ts";
+import type { Bot, Context } from "grammy";
+import type { AppConfig } from "../config.ts";
+import {
+  clearGroupData,
+  clearMemberGuidance,
+  getMemberGuidance,
+  getMemories,
+  getOrCreateGroup,
+  updateGroup,
+} from "../db/local.ts";
+import { clearMessages, getRecentMessages } from "../services/cache.ts";
+import { canUseAdminCommand } from "../services/command_registry.ts";
+import {
+  formatDebugLlmStatus,
+  formatRuntimeStatus,
+} from "../services/diagnostics.ts";
+import { getLastLlmRequestStatus, type LlmProvider } from "../services/llm.ts";
+import { generateModelReply } from "../services/message_reply.ts";
+import {
+  loadGroupBehaviorProfile,
+  loadMemberInteractionGuidance,
+} from "../services/profiles.ts";
+import { safeReply } from "../services/telegram.ts";
+import type { ResponseMode } from "../types.ts";
 
-export function setupCommandHandlers(bot: Bot): void {
-  bot.command("start", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
+async function isGroupAdmin(ctx: Context): Promise<boolean> {
+  if (
+    !ctx.chat || !ctx.from ||
+    (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")
+  ) return false;
+  const member = await ctx.getChatMember(ctx.from.id);
+  return canUseAdminCommand(member.status);
+}
 
-    await ctx.reply(
-      `မင်္ဂလာပါ! ကျွန်တော် ${config.botUsername} ပါ။\n` +
-      `Group ထဲမှာ @mention လုပ်ပြီး ခေါ်ပါ။\n\n` +
-      `Commands:\n` +
-      `/personality [name] - Bot personality ပြောင်း\n` +
-      `/roast [0-3] - Roast level သတ်မှတ်\n` +
-      `/remember [fact] - Group memory သိမ်း\n` +
-      `/lore - Group memories ကြည့်\n` +
-      `/recap - ဒီနေ့ group recap\n` +
-      `/judge - Reply လုပ်ထားတဲ့ discussion ကို verdict ပေး\n` +
-      `/help - ဒီစာပြန်ပြ`,
+function isGroup(ctx: Context): boolean {
+  return !!ctx.chat &&
+    (ctx.chat.type === "group" || ctx.chat.type === "supergroup");
+}
+
+function isSupportedChat(ctx: Context): boolean {
+  return !!ctx.chat &&
+    (ctx.chat.type === "private" || ctx.chat.type === "group" ||
+      ctx.chat.type === "supergroup");
+}
+
+function helpText(config: AppConfig): string {
+  return [
+    `@${config.botUsername} ကို mention လုပ်ရင်၊ bot message ကို reply လုပ်ရင်၊ command သုံးရင်ပဲ ပြန်ဖြေမယ်။`,
+    "",
+    "Commands:",
+    "/help - ဘာလုပ်လို့ရလဲ",
+    "/status - bot အခြေအနေ",
+    "/recap - ဒီနေ့ chat recap",
+    "/judge - reply တစ်ခုကို verdict ပေး",
+    "/vibe - group mood",
+    "/privacy - data/privacy",
+    "/forget - ကိုယ့် data ဖျက်",
+  ].join("\n");
+}
+
+async function commandLlmReply(
+  ctx: Context,
+  config: AppConfig,
+  llm: LlmProvider,
+  mode: ResponseMode,
+  triggerText: string,
+  repliedText?: string,
+): Promise<void> {
+  if (!isGroup(ctx) || !ctx.chat || !ctx.from) return;
+
+  const group = await getOrCreateGroup(ctx.chat.id, ctx.chat.title || "", {
+    reply_length: config.defaultReplyLength,
+    humor_level: config.defaultHumorLevel,
+    roast_level: config.defaultRoastLevel,
+  });
+  const recentMessages = getRecentMessages(
+    ctx.chat.id,
+    config.recentContextLimit,
+  );
+  const groupProfile = await loadGroupBehaviorProfile(config.groupProfilePath);
+  const storedGuidance = await getMemberGuidance(ctx.chat.id, ctx.from.id);
+  const fileGuidance = storedGuidance
+    ? null
+    : await loadMemberInteractionGuidance(
+      config.memberProfilesPath,
+      ctx.chat.id,
+      ctx.from.id,
     );
+
+  const result = await generateModelReply({
+    llm,
+    mode,
+    group,
+    triggerUser: ctx.from.username || ctx.from.first_name || "unknown",
+    triggerText,
+    repliedText,
+    recentMessages,
+    groupProfile,
+    memberGuidance: storedGuidance || fileGuidance,
+    memories: group.memory_enabled ? await getMemories(ctx.chat.id, 8) : [],
   });
 
-  bot.command("help", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
+  await safeReply(ctx, result.response, ctx.message?.message_id);
+}
 
-    const personalityNames = Object.keys(PERSONALITIES).join(", ");
-    await ctx.reply(
-      `Commands:\n` +
-      `/personality [name] - Personality ပြောင်း (${personalityNames})\n` +
-      `/roast [0-3] - Roast level သတ်မှတ်\n` +
-      `/remember [fact] - Group memory သိမ်း\n` +
-      `/lore - Group memories ကြည့်\n` +
-      `/recap - ဒီနေ့ group recap\n` +
-      `/judge - Reply လုပ်ထားတဲ့ discussion ကို verdict ပေး\n` +
-      `/vibe - Group mood ကို ဟာသပုံစံနဲ့ပြ`,
-    );
+export function setupCommandHandlers(
+  bot: Bot,
+  config: AppConfig,
+  llm: LlmProvider,
+): void {
+  bot.command(["start", "help"], async (ctx) => {
+    if (!isSupportedChat(ctx)) return;
+    await ctx.reply(helpText(config));
   });
 
-  bot.command("personality", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-    if (!ctx.message) return;
+  bot.command("status", async (ctx) => {
+    if (!isSupportedChat(ctx)) return;
+    await ctx.reply(formatRuntimeStatus(config, getLastLlmRequestStatus()));
+  });
 
-    const text = ctx.message.text || "";
-    const args = text.split(" ").slice(1).join(" ").trim();
-
-    if (!args || !PERSONALITIES[args]) {
-      const available = Object.keys(PERSONALITIES).join(", ");
-      await ctx.reply(`Personality ရွေးပါ: ${available}`);
+  bot.command("debug_llm", async (ctx) => {
+    if (!await isGroupAdmin(ctx)) {
+      await ctx.reply("ဒီ command က group admin တွေအတွက်ပဲပါ။");
       return;
     }
-
-    await updateGroup(ctx.chat.id, { personality: args } as any);
-    await ctx.reply(`Personality ကို ${args} ပြောင်းပြီးပြီ။ ✅`);
-  });
-
-  bot.command("roast", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-    if (!ctx.message) return;
-
-    const text = ctx.message.text || "";
-    const args = text.split(" ").slice(1).join(" ").trim();
-
-    const level = parseInt(args);
-    if (isNaN(level) || level < 0 || level > 3) {
-      await ctx.reply("Roast level 0-3 ထည့်ပါ။");
-      return;
-    }
-
-    await updateGroup(ctx.chat.id, { roast_level: level } as any);
-    await ctx.reply(`Roast level ကို ${level} ပြောင်းပြီးပြီ။ 🔥`);
-  });
-
-  bot.command("remember", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-    if (!ctx.message) return;
-
-    const text = ctx.message.text || "";
-    const args = text.split(" ").slice(1).join(" ").trim();
-
-    if (!args) {
-      await ctx.reply("ဘာသိမ်းမလဲ? /remember Ko Min က meeting တိုင်းနောက်ကျတယ်");
-      return;
-    }
-
-    const userId = ctx.from?.id || 0;
-    await addMemory(ctx.chat.id, args, userId);
-    await ctx.reply("Memory သိမ်းပြီးပြီ။ 📝");
-  });
-
-  bot.command("lore", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-
-    const memories = await getMemories(ctx.chat.id);
-    if (memories.length === 0) {
-      await ctx.reply("Group lore မရှိသေးဘူး။ /remember နဲ့ စသိမ်းလိုက်ပါ။");
-      return;
-    }
-
-    let loreText = "Group Lore 📜\n\n";
-    for (const m of memories.slice(0, 20)) {
-      loreText += `• ${m.fact}\n`;
-    }
-    await ctx.reply(loreText);
+    await ctx.reply(formatDebugLlmStatus(config, getLastLlmRequestStatus()));
   });
 
   bot.command("recap", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-
-    const chatId = ctx.chat.id;
-    const userId = ctx.from?.id || 0;
-    const username = ctx.from?.username || ctx.from?.first_name || "unknown";
-
-    if (!await checkRateLimit(chatId, userId)) {
-      await ctx.reply("Chill bro, ခဏနားလိုက်ဦး။ 😅");
-      return;
-    }
-
-    const recent = await getRecentMessages(chatId, 50);
-    if (recent.length === 0) {
-      await ctx.reply("စကားပြောစရာမရှိသေးဘူး။ 🤷");
-      return;
-    }
-
-    const group = await getOrCreateGroup(chatId, ctx.chat.title || "");
-    const memories = await getMemories(chatId);
-    const memoryFacts = memories.map((m) => m.fact);
-
-    const messages = buildRecapPrompt(
-      group.personality,
-      group.roast_level,
-      recent,
-      username,
-      memoryFacts.length > 0 ? memoryFacts : null,
+    if (!isGroup(ctx)) return;
+    await commandLlmReply(
+      ctx,
+      config,
+      llm,
+      "default",
+      "ဒီနေ့ chat ကို ၃ ကြောင်းလောက် recap လုပ်ပေး။",
     );
-
-    try {
-      const typingLoop = startTypingLoop(ctx);
-      
-      let response = await callMimo(messages);
-      typingLoop.stop();
-      response = sanitizeResponse(response);
-
-      const { safe } = checkSafety(response);
-      if (!safe) {
-        response = "ဒီဟာကတော့ မပြောတတ်ဘူး။ 🤐";
-      }
-
-      await ctx.reply(response);
-    } catch (error) {
-      console.error("Error in recap command:", error);
-      await ctx.reply("Error ဖြစ်သွားတယ်။ ခဏနောက်မှပြန်ကြိုးစားပါ။");
-    }
   });
 
   bot.command("judge", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
-    if (!ctx.message) return;
-
-    if (!ctx.message.reply_to_message) {
-      await ctx.reply("Discussion တခုကို reply လုပ်ပြီး /judge ပါ။");
+    if (!isGroup(ctx)) return;
+    const repliedText = ctx.message?.reply_to_message?.text;
+    if (!repliedText) {
+      await ctx.reply("/judge ကို verdict ပေးချင်တဲ့ message ကို reply လုပ်ပြီးသုံးပါ။");
       return;
     }
-
-    const chatId = ctx.chat.id;
-    const userId = ctx.from?.id || 0;
-    const username = ctx.from?.username || ctx.from?.first_name || "unknown";
-
-    if (!await checkRateLimit(chatId, userId)) {
-      await ctx.reply("Chill bro, ခဏနားလိုက်ဦး။ 😅");
-      return;
-    }
-
-    const recent = await getRecentMessages(chatId, 50);
-    const group = await getOrCreateGroup(chatId, ctx.chat.title || "");
-    const memories = await getMemories(chatId);
-    const memoryFacts = memories.map((m) => m.fact);
-
-    const messages = buildJudgePrompt(
-      group.personality,
-      group.roast_level,
-      recent.slice(-20),
-      username,
-      memoryFacts.length > 0 ? memoryFacts : null,
+    await commandLlmReply(
+      ctx,
+      config,
+      llm,
+      "referee",
+      "ဒီ discussion ကို မျှမျှတတ judge လုပ်ပေး။",
+      repliedText,
     );
-
-    try {
-      const typingLoop = startTypingLoop(ctx);
-      
-      let response = await callMimo(messages);
-      typingLoop.stop();
-      response = sanitizeResponse(response);
-
-      const { safe } = checkSafety(response);
-      if (!safe) {
-        response = "ဒီဟာကတော့ မပြောတတ်ဘူး။ 🤐";
-      }
-
-      await ctx.reply(response, { reply_to_message_id: ctx.message.reply_to_message.message_id });
-    } catch (error) {
-      console.error("Error in judge command:", error);
-      await ctx.reply("Error ဖြစ်သွားတယ်။ ခဏနောက်မှပြန်ကြိုးစားပါ။");
-    }
   });
 
   bot.command("vibe", async (ctx) => {
-    if (!ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
+    if (!isGroup(ctx)) return;
+    await commandLlmReply(
+      ctx,
+      config,
+      llm,
+      "banter",
+      "အခု group vibe ကို short funny line နဲ့ပြောပေး။",
+    );
+  });
 
-    const chatId = ctx.chat.id;
-    const userId = ctx.from?.id || 0;
+  bot.command("privacy", async (ctx) => {
+    if (!isSupportedChat(ctx)) return;
+    await ctx.reply(
+      [
+        "Recent group context ကို short-lived memory အနေနဲ့ပဲသိမ်းတယ်။",
+        "Approved memories နဲ့ safe interaction guidance ကို command နဲ့ဖျက်လို့ရတယ်။",
+        "/forget က ကိုယ့် guidance ကိုဖျက်တယ်။ /groupforget က admin-only group context/memory clear လုပ်တယ်။",
+      ].join("\n"),
+    );
+  });
 
-    if (!await checkRateLimit(chatId, userId)) {
-      await ctx.reply("Chill bro, ခဏနားလိုက်ဦး။ 😅");
+  bot.command("forget", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.from || !ctx.chat) return;
+    await clearMemberGuidance(ctx.chat.id, ctx.from.id);
+    await ctx.reply("သင့် interaction guidance ကိုဖျက်ပြီးပါပြီ။");
+  });
+
+  bot.command("groupforget", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.chat) return;
+    if (!await isGroupAdmin(ctx)) {
+      await ctx.reply("ဒီ command က group admin တွေအတွက်ပဲပါ။");
+      return;
+    }
+    clearMessages(ctx.chat.id);
+    await clearGroupData(ctx.chat.id);
+    await ctx.reply(
+      "Group recent context နဲ့ approved memories ကို clear လုပ်ပြီးပါပြီ။",
+    );
+  });
+
+  bot.command("botstyle", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.chat) return;
+
+    const group = await getOrCreateGroup(ctx.chat.id, ctx.chat.title || "", {
+      reply_length: config.defaultReplyLength,
+      humor_level: config.defaultHumorLevel,
+      roast_level: config.defaultRoastLevel,
+    });
+    const text = ctx.message?.text || "";
+    const [, key, value] = text.trim().split(/\s+/);
+
+    if (!key || !value) {
+      await ctx.reply(
+        `Current style: reply_length=${group.reply_length}, humor_level=${group.humor_level}, roast_level=${group.roast_level}\n` +
+          "Admin update: /botstyle reply_length short|medium OR /botstyle humor_level 0-3 OR /botstyle roast_level 0-2",
+      );
       return;
     }
 
-    const recent = await getRecentMessages(chatId, 30);
-    if (recent.length === 0) {
-      await ctx.reply("Group vibe ကိုဖတ်ဖို့ စကားပြောပါဦး။ 🤷");
+    if (!await isGroupAdmin(ctx)) {
+      await ctx.reply("Style ပြောင်းဖို့ group admin ဖြစ်ဖို့လိုပါတယ်။");
       return;
     }
 
-    const system = "You are a fun group chat member. Someone asked about the group's current vibe/mood. Give a short, funny one-liner about the current mood based on the recent messages.";
-    let chat = "";
-    for (const msg of recent) {
-      chat += `[${msg.username}]: ${msg.content}\n`;
+    if (key === "reply_length" && (value === "short" || value === "medium")) {
+      await updateGroup(ctx.chat.id, { reply_length: value });
+    } else if (key === "humor_level" && /^[0-3]$/.test(value)) {
+      await updateGroup(ctx.chat.id, { humor_level: Number(value) });
+    } else if (key === "roast_level" && /^[0-2]$/.test(value)) {
+      await updateGroup(ctx.chat.id, { roast_level: Number(value) });
+    } else {
+      await ctx.reply(
+        "Invalid style value ပါ။ /botstyle နဲ့ current options ကိုကြည့်ပါ။",
+      );
+      return;
     }
 
-    const messages = [
-      { role: "system", content: system },
-      { role: "user", content: `What's the group vibe right now?\n${chat}` },
-    ];
-
-    try {
-      const typingLoop = startTypingLoop(ctx);
-      
-      let response = await callMimo(messages, 0.7, 200);
-      typingLoop.stop();
-      response = sanitizeResponse(response);
-      await ctx.reply(response);
-    } catch (error) {
-      console.error("Error in vibe command:", error);
-      await ctx.reply("Error ဖြစ်သွားတယ်။");
-    }
+    await ctx.reply("Bot style updated ပါပြီ။");
   });
 }

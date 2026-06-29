@@ -1,62 +1,68 @@
-import { config } from "../config.ts";
+import type { CachedMessage } from "../types.ts";
 
-interface CachedMessage {
-  user_id: number;
-  username: string;
-  content: string;
-  timestamp: number;
+export interface ContextCacheOptions {
+  ttlMs: number;
+  maxMessages: number;
 }
 
-class InMemoryCache {
+class InMemoryContextCache {
   private messages: Map<number, CachedMessage[]> = new Map();
+
+  constructor(private readonly options: ContextCacheOptions) {}
 
   private cleanup(chatId: number): void {
     const now = Date.now();
-    const ttlMs = config.messageTtlHours * 3600 * 1000;
-    let messages = this.messages.get(chatId) || [];
-
-    messages = messages.filter((m) => now - m.timestamp < ttlMs);
-
-    if (messages.length > config.maxContextMessages) {
-      messages = messages.slice(-config.maxContextMessages);
-    }
-
-    this.messages.set(chatId, messages);
+    const ttlMs = this.options.ttlMs;
+    const retained = (this.messages.get(chatId) || [])
+      .filter((message) => now - message.timestamp < ttlMs)
+      .slice(-this.options.maxMessages);
+    if (retained.length === 0) this.messages.delete(chatId);
+    else this.messages.set(chatId, retained);
   }
 
-  async addMessage(chatId: number, userId: number, username: string, content: string): Promise<void> {
+  addMessage(chatId: number, message: Omit<CachedMessage, "timestamp">): void {
+    const content = message.content.trim();
+    if (!content) return;
+
     const messages = this.messages.get(chatId) || [];
-    messages.push({
-      user_id: userId,
-      username: username,
-      content: content,
-      timestamp: Date.now(),
-    });
+    const last = messages.at(-1);
+    if (last?.message_id === message.message_id) return;
+
+    messages.push({ ...message, content, timestamp: Date.now() });
     this.messages.set(chatId, messages);
     this.cleanup(chatId);
   }
 
-  async getRecentMessages(chatId: number, limit: number = 50): Promise<CachedMessage[]> {
+  getRecentMessages(chatId: number, limit: number): CachedMessage[] {
     this.cleanup(chatId);
-    const messages = this.messages.get(chatId) || [];
-    return messages.slice(-limit);
+    return (this.messages.get(chatId) || []).slice(-limit);
   }
 
-  async clearMessages(chatId: number): Promise<void> {
+  clearMessages(chatId: number): void {
     this.messages.delete(chatId);
   }
 }
 
-export const cache = new InMemoryCache();
+let cache = new InMemoryContextCache({
+  ttlMs: 180 * 60 * 1000,
+  maxMessages: 80,
+});
 
-export async function addMessage(chatId: number, userId: number, username: string, content: string): Promise<void> {
-  await cache.addMessage(chatId, userId, username, content);
+export function configureCache(options: ContextCacheOptions): void {
+  cache = new InMemoryContextCache(options);
 }
 
-export async function getRecentMessages(chatId: number, limit: number = 50): Promise<CachedMessage[]> {
-  return await cache.getRecentMessages(chatId, limit);
+export function addMessage(
+  chatId: number,
+  message: Omit<CachedMessage, "timestamp">,
+): void {
+  cache.addMessage(chatId, message);
 }
 
-export async function clearMessages(chatId: number): Promise<void> {
-  await cache.clearMessages(chatId);
+export function getRecentMessages(chatId: number, limit = 30): CachedMessage[] {
+  return cache.getRecentMessages(chatId, limit);
+}
+
+export function clearMessages(chatId: number): void {
+  cache.clearMessages(chatId);
 }

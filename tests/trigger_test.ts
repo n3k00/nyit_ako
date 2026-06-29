@@ -1,0 +1,57 @@
+import { shouldHandleTextMessage } from "../src/handlers/messages.ts";
+
+function assertEquals(actual: unknown, expected: unknown): void {
+  if (actual !== expected) {
+    throw new Error(`Expected ${expected}, got ${actual}`);
+  }
+}
+
+Deno.test("trigger gate accepts explicit mentions", () => {
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "hey @NekoBot help",
+      botUsername: "NekoBot",
+      fromBot: false,
+    }),
+    true,
+  );
+});
+
+Deno.test("trigger gate accepts direct replies to the bot", () => {
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "ပြန်ရှင်းပြပါ",
+      botUsername: "NekoBot",
+      fromBot: false,
+      replyFromBotUsername: "NekoBot",
+    }),
+    true,
+  );
+});
+
+Deno.test("trigger gate ignores normal chatter, commands, and bots", () => {
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "normal chat",
+      botUsername: "NekoBot",
+      fromBot: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "/help",
+      botUsername: "NekoBot",
+      fromBot: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "@NekoBot hi",
+      botUsername: "NekoBot",
+      fromBot: true,
+    }),
+    false,
+  );
+});

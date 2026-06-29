@@ -1,125 +1,158 @@
-import { config } from "../config.ts";
-
-export const PERSONALITIES: Record<string, string> = {
-  chill_friend: "You are a chill friend in a group chat. You speak casually, use humor occasionally, and keep things relaxed. You don't overexplain. You respond like a real friend would.",
-  deadpan_judge: "You are a deadpan judge in a group chat. You deliver emotionless sarcasm. You give verdicts on arguments with dry wit. No enthusiasm, just cold observations.",
-  chaotic_gremlin: "You are a chaotic gremlin in a group chat. You speak in short, meme-style bursts. You're absurd, unpredictable, and funny. Keep responses punchy.",
-  helpful_nerd: "You are a helpful nerd in a group chat. When asked about tech or facts, you give thorough but not boring answers. You're the friend everyone asks for explanations.",
-  group_elder: "You are the wise elder of a group chat. When people argue, you mediate calmly. You give balanced perspectives and occasionally drop wisdom. You're respected, not preachy.",
-};
-
-export interface Group {
-  chat_id: number;
-  name: string;
-  personality: string;
-  roast_level: number;
-  context_mode: string;
-  memory_enabled: boolean;
-  created_at: string;
-}
-
-export interface GroupMemory {
-  id: number;
-  chat_id: number;
-  fact: string;
-  category: string;
-  created_by: number;
-  approved: boolean;
-  created_at: string;
-}
-
-const DB_PATH = "data/local_db.json";
+import type {
+  GroupMemory,
+  GroupSettings,
+  MemberInteractionGuidance,
+} from "../types.ts";
 
 interface LocalDB {
-  groups: Record<string, Group>;
+  groups: Record<string, GroupSettings>;
   memories: GroupMemory[];
+  memberGuidance: Record<string, MemberInteractionGuidance>;
   nextMemoryId: number;
 }
 
-let db: LocalDB = { groups: {}, memories: [], nextMemoryId: 1 };
+const DB_PATH = Deno.env.get("LOCAL_DB_PATH") || "data/local_db.json";
+let db: LocalDB = {
+  groups: {},
+  memories: [],
+  memberGuidance: {},
+  nextMemoryId: 1,
+};
 
 export async function initLocalDB(): Promise<void> {
   try {
     const text = await Deno.readTextFile(DB_PATH);
-    db = JSON.parse(text);
-    console.log("Local DB loaded");
-  } catch {
+    db = JSON.parse(text) as LocalDB;
+    db.groups ||= {};
+    db.memories ||= [];
+    db.memberGuidance ||= {};
+    db.nextMemoryId ||= 1;
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
     await Deno.mkdir("data", { recursive: true });
     await saveDB();
-    console.log("Local DB created");
   }
 }
 
 async function saveDB(): Promise<void> {
+  await Deno.mkdir("data", { recursive: true });
   await Deno.writeTextFile(DB_PATH, JSON.stringify(db, null, 2));
 }
 
-export async function getOrCreateGroup(chatId: number, name: string = ""): Promise<Group> {
+export async function getOrCreateGroup(
+  chatId: number,
+  name: string,
+  defaults: Pick<GroupSettings, "reply_length" | "humor_level" | "roast_level">,
+): Promise<GroupSettings> {
   const key = String(chatId);
-  if (db.groups[key]) {
-    return db.groups[key];
-  }
+  if (db.groups[key]) return db.groups[key];
 
-  const group: Group = {
+  const now = new Date().toISOString();
+  const group: GroupSettings = {
     chat_id: chatId,
-    name: name,
-    personality: config.defaultPersonality,
-    roast_level: config.defaultRoastLevel,
-    context_mode: "mention_only",
+    name,
+    reply_length: defaults.reply_length,
+    humor_level: defaults.humor_level,
+    roast_level: defaults.roast_level,
     memory_enabled: false,
-    created_at: new Date().toISOString(),
+    created_at: now,
+    updated_at: now,
   };
-
   db.groups[key] = group;
   await saveDB();
   return group;
 }
 
-export async function updateGroup(chatId: number, updates: Partial<Group>): Promise<void> {
+export async function updateGroup(
+  chatId: number,
+  updates: Partial<GroupSettings>,
+): Promise<GroupSettings> {
   const key = String(chatId);
   if (!db.groups[key]) {
-    await getOrCreateGroup(chatId);
+    const now = new Date().toISOString();
+    db.groups[key] = {
+      chat_id: chatId,
+      name: "",
+      reply_length: "short",
+      humor_level: 1,
+      roast_level: 1,
+      memory_enabled: false,
+      created_at: now,
+      updated_at: now,
+    };
   }
-  Object.assign(db.groups[key], updates);
+  db.groups[key] = {
+    ...db.groups[key],
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
   await saveDB();
+  return db.groups[key];
 }
 
-export async function addMemory(chatId: number, fact: string, createdBy: number, category: string = "general"): Promise<void> {
+export async function addMemory(
+  chatId: number,
+  fact: string,
+  createdBy: number,
+  category: GroupMemory["category"] = "general",
+): Promise<GroupMemory> {
   const memory: GroupMemory = {
     id: db.nextMemoryId++,
     chat_id: chatId,
-    fact: fact,
-    category: category,
+    fact,
+    category,
     created_by: createdBy,
     approved: true,
     created_at: new Date().toISOString(),
   };
   db.memories.push(memory);
   await saveDB();
+  return memory;
 }
 
-export async function getMemories(chatId: number): Promise<GroupMemory[]> {
+export function getMemories(
+  chatId: number,
+  limit = 10,
+): GroupMemory[] {
   return db.memories
-    .filter((m) => m.chat_id === chatId && m.approved)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    .filter((memory) => memory.chat_id === chatId && memory.approved)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, limit);
 }
 
-const rateLimitWindow: Map<string, number[]> = new Map();
+export async function clearGroupData(chatId: number): Promise<void> {
+  db.memories = db.memories.filter((memory) => memory.chat_id !== chatId);
+  await saveDB();
+}
 
-export async function checkRateLimit(chatId: number, userId: number): Promise<boolean> {
-  const key = `${chatId}:${userId}`;
-  const now = Date.now();
-  const windowMs = 60000;
-  const limit = config.rateLimitPerMinute;
+function guidanceKey(chatId: number, userId: number): string {
+  return `${chatId}:${userId}`;
+}
 
-  let timestamps = rateLimitWindow.get(key) || [];
-  timestamps = timestamps.filter((t) => now - t < windowMs);
-
-  if (timestamps.length >= limit) {
-    return false;
+export function getMemberGuidance(
+  chatId: number,
+  userId: number,
+): MemberInteractionGuidance | null {
+  const guidance = db.memberGuidance[guidanceKey(chatId, userId)];
+  if (!guidance) return null;
+  if (guidance.expires_at && Date.parse(guidance.expires_at) < Date.now()) {
+    return null;
   }
+  return guidance;
+}
 
-  timestamps.push(now);
-  rateLimitWindow.set(key, timestamps);
-  return true;
+export async function saveMemberGuidance(
+  guidance: MemberInteractionGuidance,
+): Promise<void> {
+  if (typeof guidance.chat_id !== "number") return;
+  db.memberGuidance[guidanceKey(guidance.chat_id, guidance.user_id)] = guidance;
+  await saveDB();
+}
+
+export async function clearMemberGuidance(
+  chatId: number,
+  userId: number,
+): Promise<void> {
+  delete db.memberGuidance[guidanceKey(chatId, userId)];
+  await saveDB();
 }
