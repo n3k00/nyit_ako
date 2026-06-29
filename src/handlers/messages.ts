@@ -136,7 +136,6 @@ export function setupMessageHandler(
     if (triggerKind === "ambient") {
       const bundle = ambientBundleResult.bundle;
       if (!bundle) return;
-      const typingLoop = startTypingLoop(ctx);
       try {
         const decision = await decideAmbientReply(
           llm,
@@ -170,8 +169,6 @@ export function setupMessageHandler(
           chatId: ctx.chat.id,
           error: error instanceof Error ? error.message : String(error),
         });
-      } finally {
-        typingLoop.stop();
       }
       return;
     }

@@ -1,6 +1,7 @@
 import {
   canUseAdminCommand,
   isSupportedCommand,
+  normalizeTargetedCommandText,
   parseCommandName,
   registerTelegramCommandMenu,
 } from "../src/services/command_registry.ts";
@@ -21,6 +22,20 @@ Deno.test("/help@bot_username is routed as a command", () => {
   assert(
     isSupportedCommand("/help@nyit_ako_bot", "nyit_ako_bot"),
     "help command should be supported",
+  );
+});
+
+Deno.test("targeted command text is normalized for command handlers", () => {
+  assertEquals(
+    normalizeTargetedCommandText(
+      "/judge@nyit_ako_bot please",
+      "nyit_ako_bot",
+    ),
+    "/judge please",
+  );
+  assertEquals(
+    normalizeTargetedCommandText("/judge@other_bot", "nyit_ako_bot"),
+    "/judge@other_bot",
   );
 });
 

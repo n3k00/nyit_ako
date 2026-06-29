@@ -35,6 +35,18 @@ export function parseCommandName(
   return command.toLowerCase();
 }
 
+export function normalizeTargetedCommandText(
+  text: string | undefined,
+  botUsername: string,
+): string | undefined {
+  if (!text) return text;
+  const escaped = botUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(
+    new RegExp(`^/([a-z_]+)@${escaped}(?=\\s|$)`, "i"),
+    "/$1",
+  );
+}
+
 export function isSupportedCommand(
   text: string | undefined,
   botUsername: string,

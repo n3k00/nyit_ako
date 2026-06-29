@@ -11,12 +11,20 @@ import {
   updateGroup,
 } from "../db/local.ts";
 import { clearMessages, getRecentMessages } from "../services/cache.ts";
-import { canUseAdminCommand } from "../services/command_registry.ts";
+import {
+  canUseAdminCommand,
+  normalizeTargetedCommandText,
+} from "../services/command_registry.ts";
 import {
   formatDebugLlmStatus,
   formatRuntimeStatus,
 } from "../services/diagnostics.ts";
-import { getLastLlmRequestStatus, type LlmProvider } from "../services/llm.ts";
+import {
+  fallbackResponse,
+  getLastLlmRequestStatus,
+  type LlmProvider,
+  startTypingLoop,
+} from "../services/llm.ts";
 import { generateModelReply } from "../services/message_reply.ts";
 import {
   loadGroupBehaviorProfile,
@@ -25,6 +33,7 @@ import {
 import { safeReply } from "../services/telegram.ts";
 import { guidanceSummary } from "../services/learning.ts";
 import type { ResponseMode } from "../types.ts";
+import { logger } from "../logging.ts";
 
 async function isGroupAdmin(ctx: Context): Promise<boolean> {
   if (
@@ -98,20 +107,32 @@ async function commandLlmReply(
       ctx.from.id,
     );
 
-  const result = await generateModelReply({
-    llm,
-    mode,
-    group,
-    triggerUser: ctx.from.username || ctx.from.first_name || "unknown",
-    triggerText,
-    repliedText,
-    recentMessages,
-    groupProfile,
-    memberGuidance: storedGuidance || fileGuidance,
-    memories: group.memory_enabled ? await getMemories(ctx.chat.id, 8) : [],
-  });
+  const typingLoop = startTypingLoop({ chat: ctx.chat, api: ctx.api });
+  try {
+    const result = await generateModelReply({
+      llm,
+      mode,
+      group,
+      triggerUser: ctx.from.username || ctx.from.first_name || "unknown",
+      triggerText,
+      repliedText,
+      recentMessages,
+      groupProfile,
+      memberGuidance: storedGuidance || fileGuidance,
+      memories: group.memory_enabled ? await getMemories(ctx.chat.id, 8) : [],
+    });
 
-  await safeReply(ctx, result.response, ctx.message?.message_id);
+    await safeReply(ctx, result.response, ctx.message?.message_id);
+  } catch (error) {
+    logger.error("command_reply_failed", {
+      chatId: ctx.chat.id,
+      mode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await safeReply(ctx, fallbackResponse(), ctx.message?.message_id);
+  } finally {
+    typingLoop.stop();
+  }
 }
 
 export function setupCommandHandlers(
@@ -119,6 +140,19 @@ export function setupCommandHandlers(
   config: AppConfig,
   llm: LlmProvider,
 ): void {
+  bot.use(async (ctx, next) => {
+    if (ctx.message?.text) {
+      const normalized = normalizeTargetedCommandText(
+        ctx.message.text,
+        config.botUsername,
+      );
+      if (normalized !== ctx.message.text) {
+        ctx.message.text = normalized;
+      }
+    }
+    await next();
+  });
+
   bot.command(["start", "help"], async (ctx) => {
     if (!isSupportedChat(ctx)) return;
     await ctx.reply(helpText(config));
