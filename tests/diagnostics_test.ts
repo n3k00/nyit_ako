@@ -33,7 +33,7 @@ const config: AppConfig = {
   startupCheckOnly: false,
   ambientRepliesEnabled: true,
   ambientMaxPerMinute: 2,
-  ambientCooldownSeconds: 25,
+  ambientCooldownSeconds: 60,
   ambientContextMessages: 20,
   ambientMinMessageLength: 3,
 };

@@ -120,7 +120,10 @@ Ambient replies are enabled by default and are meant to feel like a friend
 naturally joining the conversation, not a bot answering every line. The bot uses
 recent context, looks for useful signals such as questions or recommendations,
 and caps ambient replies with `AMBIENT_MAX_PER_MINUTE` plus
-`AMBIENT_COOLDOWN_SECONDS`.
+`AMBIENT_COOLDOWN_SECONDS` (`60` seconds by default).
+
+Long helpful answers are sent in Telegram-sized chunks instead of being cut off
+mid-response.
 
 If the bot does not see normal group messages, disable Telegram privacy mode in
 BotFather:

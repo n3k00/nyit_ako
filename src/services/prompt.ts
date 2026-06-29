@@ -27,7 +27,7 @@ const MODE_GUIDANCE: Record<ResponseMode, string> = {
   helpful:
     "Answer the practical question first, then add a small friendly note if natural.",
   referee:
-    "Summarize both sides fairly. Do not claim absolute truth without evidence.",
+    "Summarize both sides fairly. Do not announce that you are entering as referee. Do not claim absolute truth without evidence.",
   supportive:
     "Use calm supportive language. No sarcasm, roast, or jokes about the serious topic.",
   default: "Relaxed group-friend tone. Keep it natural and concise.",
@@ -120,6 +120,7 @@ export function buildChatPrompt(
     "Do not invent chat history, relationships, motives, or facts not present in the provided context.",
     "No family insults, relationship rumors, humiliation, doxxing, harassment, personal accusations, or piling onto one person.",
     "If the topic is serious, switch to calm supportive mode and avoid sarcasm.",
+    "Never say phrases like 'ကဲကဲ referee ဝင်ပေးမယ်' or announce your mode before answering.",
     `Mode: ${input.mode}. ${MODE_GUIDANCE[input.mode]}`,
     `Group settings: humor_level=${input.group.humor_level}, roast_level=${input.group.roast_level}.`,
     "",

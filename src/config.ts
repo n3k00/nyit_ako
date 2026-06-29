@@ -118,7 +118,7 @@ export function loadConfig(): AppConfig {
     ambientRepliesEnabled: stringFromEnv("AMBIENT_REPLIES_ENABLED", "true") ===
       "true",
     ambientMaxPerMinute: intFromEnv("AMBIENT_MAX_PER_MINUTE", 2, 0, 20),
-    ambientCooldownSeconds: intFromEnv("AMBIENT_COOLDOWN_SECONDS", 25, 0, 300),
+    ambientCooldownSeconds: intFromEnv("AMBIENT_COOLDOWN_SECONDS", 60, 0, 300),
     ambientContextMessages: intFromEnv("AMBIENT_CONTEXT_MESSAGES", 20, 5, 40),
     ambientMinMessageLength: intFromEnv(
       "AMBIENT_MIN_MESSAGE_LENGTH",

@@ -107,7 +107,7 @@ Deno.test("helpful practical replies get a larger token budget", async () => {
     allowLongAnswer: true,
   });
 
-  assertEquals(llm.options[0]?.maxTokens, 900);
+  assertEquals(llm.options[0]?.maxTokens, 1200);
   assert(
     llm.calls[0][0].content.includes("as long as needed"),
     "prompt should allow longer useful answers",
@@ -129,7 +129,7 @@ Deno.test("ambient replies stay short", async () => {
     ambient: true,
   });
 
-  assertEquals(llm.options[0]?.maxTokens, 220);
+  assertEquals(llm.options[0]?.maxTokens, 260);
   assert(
     llm.calls[0][0].content.includes("ambient natural join"),
     "prompt should mark ambient joins",

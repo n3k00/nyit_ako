@@ -48,11 +48,10 @@ export async function generateModelReply(
     ambient: input.ambient,
   });
 
-  const maxTokens = input.allowLongAnswer ? 900 : input.ambient ? 220 : 350;
-  const maxLength = input.allowLongAnswer ? 2400 : input.ambient ? 700 : 900;
+  const maxTokens = input.allowLongAnswer ? 1200 : input.ambient ? 260 : 500;
   let response = sanitizeResponse(
     await input.llm.complete(promptMessages, { maxTokens }),
-    maxLength,
+    0,
   );
   if (!checkSafety(response).safe) response = "ဒီလိုတော့ မပြောတာကောင်းမယ်။";
 

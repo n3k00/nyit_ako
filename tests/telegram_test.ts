@@ -1,4 +1,4 @@
-import { safeReply } from "../src/services/telegram.ts";
+import { safeReply, splitTelegramMessage } from "../src/services/telegram.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
   if (actual !== expected) {
@@ -27,4 +27,12 @@ Deno.test("safeReply falls back to plain reply when reply target disappeared", a
   assertEquals(calls.length, 2);
   assertEquals(calls[0].replyTo, 10);
   assertEquals(calls[1].replyTo, undefined);
+});
+
+Deno.test("splitTelegramMessage chunks long replies without dropping text", () => {
+  const text = `${"စာပိုဒ် ".repeat(900)}ပြီးဆုံး`;
+  const chunks = splitTelegramMessage(text, 1000);
+  assertEquals(chunks.length > 1, true);
+  assertEquals(chunks.every((chunk) => chunk.length <= 1000), true);
+  assertEquals(chunks.join(" ").replace(/\s+/g, " ").includes("ပြီးဆုံး"), true);
 });

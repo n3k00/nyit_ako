@@ -46,6 +46,9 @@ Ambient group replies are controlled by:
 Telegram group privacy mode must be disabled through BotFather if ambient mode
 needs to see normal group messages.
 
+Long replies are split into Telegram-sized chunks by `safeReply()` instead of
+being truncated in the sanitizer.
+
 ## Deployment Note
 
 The Supabase Edge Function wrapper uses the same bot factory, but local JSON

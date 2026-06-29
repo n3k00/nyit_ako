@@ -24,9 +24,10 @@ export function sanitizeResponse(text: string, maxLength = 1000): string {
   let output = text
     .replace(/As an AI.*?,\s*/gi, "")
     .replace(/I'm (just )?a(n)?.*?bot.*?,\s*/gi, "")
+    .replace(/^\s*ကဲကဲ\s*referee\s*ဝင်ပေးမယ်[။.!]?\s*/i, "")
     .trim();
 
-  if (output.length > maxLength) {
+  if (maxLength > 0 && output.length > maxLength) {
     output = `${output.slice(0, maxLength - 3).trim()}...`;
   }
   return output;
