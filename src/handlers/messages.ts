@@ -7,6 +7,10 @@ import {
 } from "../db/local.ts";
 import { logger } from "../logging.ts";
 import {
+  AmbientLimiter,
+  shouldConsiderAmbientReply,
+} from "../services/ambient.ts";
+import {
   fallbackResponse,
   LlmProvider,
   startTypingLoop,
@@ -34,12 +38,30 @@ export function shouldHandleTextMessage(input: {
   botUsername: string;
   fromBot: boolean;
   replyFromBotUsername?: string;
+  ambientEligible?: boolean;
 }): boolean {
   const text = input.text?.trim();
   if (!text || input.fromBot || text.startsWith("/")) return false;
   const repliedToBot = input.replyFromBotUsername?.toLowerCase() ===
     input.botUsername.toLowerCase();
-  return repliedToBot || isMentioned(text, input.botUsername);
+  return repliedToBot || isMentioned(text, input.botUsername) ||
+    input.ambientEligible === true;
+}
+
+type TriggerKind = "mention" | "reply_to_bot" | "ambient";
+
+export function resolveTriggerKind(input: {
+  text: string;
+  botUsername: string;
+  replyFromBotUsername?: string;
+  ambientEligible: boolean;
+}): TriggerKind | null {
+  const repliedToBot = input.replyFromBotUsername?.toLowerCase() ===
+    input.botUsername.toLowerCase();
+  if (repliedToBot) return "reply_to_bot";
+  if (isMentioned(input.text, input.botUsername)) return "mention";
+  if (input.ambientEligible) return "ambient";
+  return null;
 }
 
 export function setupMessageHandler(
@@ -48,6 +70,11 @@ export function setupMessageHandler(
   llm: LlmProvider,
   rateLimiter: RateLimiter,
 ): void {
+  const ambientLimiter = new AmbientLimiter(
+    config.ambientMaxPerMinute,
+    config.ambientCooldownSeconds * 1000,
+  );
+
   bot.on("message:text", async (ctx) => {
     if (
       !ctx.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")
@@ -56,26 +83,57 @@ export function setupMessageHandler(
     if (ctx.message.text.trim().startsWith("/")) return;
 
     const replied = ctx.message.reply_to_message;
+    const replyFromBotUsername = replied?.from?.is_bot
+      ? replied.from.username
+      : undefined;
+    const directlyAddressed = resolveTriggerKind({
+      text: ctx.message.text,
+      botUsername: config.botUsername,
+      replyFromBotUsername,
+      ambientEligible: false,
+    });
+    const ambientRecentMessages = getRecentMessages(
+      ctx.chat.id,
+      config.ambientContextMessages,
+    );
+    const ambientCandidate = !directlyAddressed &&
+      config.ambientRepliesEnabled &&
+      shouldConsiderAmbientReply({
+        text: ctx.message.text,
+        recentMessageCount: ambientRecentMessages.length,
+        minMessageLength: config.ambientMinMessageLength,
+      });
+    const ambientEligible = ambientCandidate &&
+      ambientLimiter.check(ctx.chat.id);
+    const triggerKind = resolveTriggerKind({
+      text: ctx.message.text,
+      botUsername: config.botUsername,
+      replyFromBotUsername,
+      ambientEligible,
+    });
+
     if (
       !shouldHandleTextMessage({
         text: ctx.message.text,
         botUsername: config.botUsername,
         fromBot: ctx.from.is_bot,
-        replyFromBotUsername: replied?.from?.is_bot
-          ? replied.from.username
-          : undefined,
+        replyFromBotUsername,
+        ambientEligible,
       })
     ) return;
+    if (!triggerKind) return;
 
     if (ctx.message.text.length > config.maxMessageLength) {
       await ctx.reply("Message က နည်းနည်းရှည်နေတယ်။ အတိုချုံးပြီး ပြန် mention လုပ်ပေးပါ။");
       return;
     }
 
-    const limit = rateLimiter.check(ctx.chat.id, ctx.from.id);
-    if (!limit.allowed) {
-      await ctx.reply("ခဏနားပြီးမှ ပြန်ခေါ်ပေးပါ။");
-      return;
+    if (triggerKind === "mention") {
+      const limit = rateLimiter.check(ctx.chat.id, ctx.from.id);
+      if (!limit.allowed) {
+        await ctx.reply("ခဏနားပြီးမှ ပြန်ခေါ်ပေးပါ။");
+        return;
+      }
     }
 
     const group = await getOrCreateGroup(ctx.chat.id, ctx.chat.title || "", {
@@ -88,10 +146,14 @@ export function setupMessageHandler(
       ctx.message.text,
       config.botUsername,
     );
-    const mode = selectResponseMode(cleanTriggerText, repliedText);
+    const mode = triggerKind === "ambient"
+      ? "default"
+      : selectResponseMode(cleanTriggerText, repliedText);
     const recentMessages = getRecentMessages(
       ctx.chat.id,
-      config.recentContextLimit,
+      triggerKind === "ambient"
+        ? config.ambientContextMessages
+        : config.recentContextLimit,
     )
       .filter((message) => message.message_id !== ctx.message.message_id)
       .slice(-config.recentContextLimit);
@@ -118,17 +180,22 @@ export function setupMessageHandler(
         mode,
         group,
         triggerUser: ctx.from.username || ctx.from.first_name || "unknown",
-        triggerText: cleanTriggerText || ctx.message.text,
+        triggerText: triggerKind === "ambient"
+          ? `Ambient join: ${ctx.message.text}`
+          : cleanTriggerText || ctx.message.text,
         repliedText,
         recentMessages,
         groupProfile,
         memberGuidance,
         memories,
+        allowLongAnswer: triggerKind !== "ambient" && mode === "helpful",
+        ambient: triggerKind === "ambient",
       });
       await safeReply(ctx, result.response, ctx.message.message_id);
       logger.info("bot_reply_sent", {
         chatId: ctx.chat.id,
         mode,
+        triggerKind,
         promptChars: result.promptChars,
       });
     } catch (error) {

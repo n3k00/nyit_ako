@@ -22,6 +22,11 @@ export interface AppConfig {
   groupProfilePath: string;
   memberProfilesPath: string;
   startupCheckOnly: boolean;
+  ambientRepliesEnabled: boolean;
+  ambientMaxPerMinute: number;
+  ambientCooldownSeconds: number;
+  ambientContextMessages: number;
+  ambientMinMessageLength: number;
 }
 
 function intFromEnv(
@@ -110,5 +115,16 @@ export function loadConfig(): AppConfig {
     ),
     startupCheckOnly: stringFromEnv("BOT_STARTUP_CHECK_ONLY", "false") ===
       "true",
+    ambientRepliesEnabled: stringFromEnv("AMBIENT_REPLIES_ENABLED", "true") ===
+      "true",
+    ambientMaxPerMinute: intFromEnv("AMBIENT_MAX_PER_MINUTE", 2, 0, 20),
+    ambientCooldownSeconds: intFromEnv("AMBIENT_COOLDOWN_SECONDS", 25, 0, 300),
+    ambientContextMessages: intFromEnv("AMBIENT_CONTEXT_MESSAGES", 20, 5, 40),
+    ambientMinMessageLength: intFromEnv(
+      "AMBIENT_MIN_MESSAGE_LENGTH",
+      3,
+      1,
+      200,
+    ),
   };
 }

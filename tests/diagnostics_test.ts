@@ -31,6 +31,11 @@ const config: AppConfig = {
   groupProfilePath: "private_context/group.json",
   memberProfilesPath: "private_context/members.json",
   startupCheckOnly: false,
+  ambientRepliesEnabled: true,
+  ambientMaxPerMinute: 2,
+  ambientCooldownSeconds: 25,
+  ambientContextMessages: 20,
+  ambientMinMessageLength: 3,
 };
 
 Deno.test("debug LLM status does not expose API key", () => {

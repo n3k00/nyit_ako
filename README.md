@@ -8,6 +8,8 @@ bounded.
 
 - Replies only on mention, direct reply to the bot, or supported command.
 - Uses recent bounded group context for natural Burmese replies.
+- Can naturally join normal group chatter, capped at two ambient replies per
+  minute by default.
 - Selects a deterministic response mode before calling the LLM: `banter`,
   `helpful`, `referee`, `supportive`, or `default`.
 - Supports optional private group/member guidance files without committing or
@@ -111,6 +113,21 @@ Examples:
 ```
 
 ## Private Context Files
+
+## Ambient Group Replies
+
+Ambient replies are enabled by default and are meant to feel like a friend
+naturally joining the conversation, not a bot answering every line. The bot uses
+recent context, looks for useful signals such as questions or recommendations,
+and caps ambient replies with `AMBIENT_MAX_PER_MINUTE` plus
+`AMBIENT_COOLDOWN_SECONDS`.
+
+If the bot does not see normal group messages, disable Telegram privacy mode in
+BotFather:
+
+```text
+/setprivacy -> choose bot -> Disable
+```
 
 Optional private files:
 

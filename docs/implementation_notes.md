@@ -35,6 +35,17 @@ retry. Tests should use deterministic units or `MockLlmProvider`.
 `src/db/local.ts` stores safe group settings, approved memories, and optional
 caller guidance in `data/local_db.json`.
 
+Ambient group replies are controlled by:
+
+- `AMBIENT_REPLIES_ENABLED`
+- `AMBIENT_MAX_PER_MINUTE`
+- `AMBIENT_COOLDOWN_SECONDS`
+- `AMBIENT_CONTEXT_MESSAGES`
+- `AMBIENT_MIN_MESSAGE_LENGTH`
+
+Telegram group privacy mode must be disabled through BotFather if ambient mode
+needs to see normal group messages.
+
 ## Deployment Note
 
 The Supabase Edge Function wrapper uses the same bot factory, but local JSON

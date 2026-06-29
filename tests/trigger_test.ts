@@ -1,4 +1,7 @@
-import { shouldHandleTextMessage } from "../src/handlers/messages.ts";
+import {
+  resolveTriggerKind,
+  shouldHandleTextMessage,
+} from "../src/handlers/messages.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
   if (actual !== expected) {
@@ -26,6 +29,26 @@ Deno.test("trigger gate accepts direct replies to the bot", () => {
       replyFromBotUsername: "NekoBot",
     }),
     true,
+  );
+});
+
+Deno.test("trigger gate accepts ambient eligible messages", () => {
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "controller ဘာဝယ်သင့်လဲ",
+      botUsername: "NekoBot",
+      fromBot: false,
+      ambientEligible: true,
+    }),
+    true,
+  );
+  assertEquals(
+    resolveTriggerKind({
+      text: "controller ဘာဝယ်သင့်လဲ",
+      botUsername: "NekoBot",
+      ambientEligible: true,
+    }),
+    "ambient",
   );
 });
 

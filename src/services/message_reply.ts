@@ -21,6 +21,8 @@ export interface GenerateModelReplyInput {
   groupProfile: GroupBehaviorProfile | null;
   memberGuidance: MemberInteractionGuidance | null;
   memories: GroupMemory[];
+  allowLongAnswer?: boolean;
+  ambient?: boolean;
 }
 
 export interface GenerateModelReplyResult {
@@ -42,11 +44,15 @@ export async function generateModelReply(
     groupProfile: input.groupProfile,
     memberGuidance: input.memberGuidance,
     memories: input.memories,
+    allowLongAnswer: input.allowLongAnswer,
+    ambient: input.ambient,
   });
 
+  const maxTokens = input.allowLongAnswer ? 900 : input.ambient ? 220 : 350;
+  const maxLength = input.allowLongAnswer ? 2400 : input.ambient ? 700 : 900;
   let response = sanitizeResponse(
-    await input.llm.complete(promptMessages, { maxTokens: 350 }),
-    900,
+    await input.llm.complete(promptMessages, { maxTokens }),
+    maxLength,
   );
   if (!checkSafety(response).safe) response = "ဒီလိုတော့ မပြောတာကောင်းမယ်။";
 

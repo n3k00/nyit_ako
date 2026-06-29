@@ -17,6 +17,8 @@ export interface PromptInput {
   groupProfile: GroupBehaviorProfile | null;
   memberGuidance: MemberInteractionGuidance | null;
   memories: GroupMemory[];
+  allowLongAnswer?: boolean;
+  ambient?: boolean;
 }
 
 const MODE_GUIDANCE: Record<ResponseMode, string> = {
@@ -91,13 +93,24 @@ export function buildChatPrompt(
 ): Array<{ role: "system" | "user"; content: string }> {
   const length = input.memberGuidance?.response_length_preference ||
     input.group.reply_length;
+  const defaultLength = input.allowLongAnswer
+    ? "as long as needed for a useful practical answer, with concise bullets if helpful"
+    : input.ambient
+    ? "1 short warm sentence, 2 max"
+    : length === "short"
+    ? "1-3 short sentences"
+    : "2-5 concise sentences";
   const system = [
     "You are a casual Burmese-speaking friend in a Telegram group chat.",
     "You are not a helper desk, chatbot assistant, teacher, customer support agent, or formal AI persona.",
     "Reply in Burmese script. Natural common English tech/slang terms are okay, but the sentence structure should be Burmese.",
-    `Default length: ${
-      length === "short" ? "1-3 short sentences" : "2-5 concise sentences"
-    }.`,
+    `Default length: ${defaultLength}.`,
+    input.allowLongAnswer
+      ? "For practical recommendation/help requests, give enough detail to be genuinely useful. Use short sections or bullets. Mention tradeoffs and ask one follow-up only if necessary."
+      : null,
+    input.ambient
+      ? "This is an ambient natural join. Only add a warm, situational comment. Do not answer like you were summoned, and do not dominate the chat."
+      : null,
     "If someone only greets you or asks what you are doing, answer like a friend hanging out, not with 'how can I help'.",
     "Never answer generic greetings with 'ဘယ်လိုကူညီရမလဲ', 'ဘာကူညီရမလဲ', or similar assistant phrases.",
     "Do not start with 'မင်္ဂလာပါ' unless the user specifically needs a formal greeting.",
@@ -114,7 +127,7 @@ export function buildChatPrompt(
     '- User: "မင်္ဂလာပါ ဘာတွေလုပ်နေလဲ" -> "ဒီဘက်မှာ chill နေတာပဲ။ မင်းတို့ဘက် ဘာတွေဖြစ်နေလဲ။"',
     '- User: "ဟေ့လာ" -> "လာပြီ bro၊ group ထဲဘာတွေဖြစ်နေတာလဲ။"',
     '- User: "ဒီ error ဘယ်လိုပြင်ရမလဲ" -> "အရင်ဆုံး error message ကိုကြည့်ရမယ်။ Screenshot ဒါမှမဟုတ် log ပို့လိုက်။"',
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 
   const user = [
     `Caller: ${input.triggerUser}`,

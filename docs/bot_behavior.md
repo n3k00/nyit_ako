@@ -7,10 +7,13 @@ The bot replies only when:
 - A group message explicitly mentions `@BOT_USERNAME`.
 - A user replies directly to one of the bot's messages.
 - A supported command is used.
+- Ambient group-friend mode decides a normal group message is worth a natural
+  join.
 
-The bot ignores normal group chatter, empty text, messages from bots, its own
-messages, unsupported message types, duplicate Telegram updates, and command
-text in the LLM message router.
+The bot ignores most normal group chatter, empty text, messages from bots, its
+own messages, unsupported message types, duplicate Telegram updates, and command
+text in the LLM message router. Ambient mode is capped per group and should not
+reply to every message.
 
 ## Modes
 
@@ -22,6 +25,7 @@ Before calling the LLM, the bot chooses one deterministic mode:
   evidence.
 - `supportive`: stress, sadness, health, or serious tone.
 - `default`: relaxed friend tone.
+- ambient `default`: short, warm, situational natural joins.
 
 Supportive mode wins over humor so serious messages do not get sarcastic
 replies.
@@ -33,6 +37,7 @@ Reply context is built from:
 - The triggering message.
 - The replied-to message, when present.
 - The most recent bounded group messages.
+- The most recent 20 messages for ambient joins by default.
 - Optional group behavior hints.
 - Optional guidance for the calling member only.
 - Optional approved group memories when enabled.

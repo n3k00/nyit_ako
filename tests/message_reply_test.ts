@@ -25,9 +25,14 @@ const group: GroupSettings = {
 
 class CapturingProvider implements LlmProvider {
   calls: ChatMessage[][] = [];
+  options: Array<{ temperature?: number; maxTokens?: number } | undefined> = [];
   constructor(private readonly response: string) {}
-  complete(messages: ChatMessage[]): Promise<string> {
+  complete(
+    messages: ChatMessage[],
+    options?: { temperature?: number; maxTokens?: number },
+  ): Promise<string> {
     this.calls.push(messages);
+    this.options.push(options);
     return Promise.resolve(this.response);
   }
 }
@@ -85,4 +90,48 @@ Deno.test("successful provider result is returned unchanged", async () => {
     memories: [],
   });
   assertEquals(result.response, "ဒါက model ကပြန်တဲ့ actual answer ပါ။");
+});
+
+Deno.test("helpful practical replies get a larger token budget", async () => {
+  const llm = new CapturingProvider("long helpful answer");
+  await generateModelReply({
+    llm,
+    mode: "helpful",
+    group,
+    triggerUser: "user",
+    triggerText: "controller ဘာဝယ်သင့်လဲ",
+    recentMessages: [],
+    groupProfile: null,
+    memberGuidance: null,
+    memories: [],
+    allowLongAnswer: true,
+  });
+
+  assertEquals(llm.options[0]?.maxTokens, 900);
+  assert(
+    llm.calls[0][0].content.includes("as long as needed"),
+    "prompt should allow longer useful answers",
+  );
+});
+
+Deno.test("ambient replies stay short", async () => {
+  const llm = new CapturingProvider("ambient answer");
+  await generateModelReply({
+    llm,
+    mode: "default",
+    group,
+    triggerUser: "user",
+    triggerText: "Ambient join: controller ဘာဝယ်ရမလဲ",
+    recentMessages: [],
+    groupProfile: null,
+    memberGuidance: null,
+    memories: [],
+    ambient: true,
+  });
+
+  assertEquals(llm.options[0]?.maxTokens, 220);
+  assert(
+    llm.calls[0][0].content.includes("ambient natural join"),
+    "prompt should mark ambient joins",
+  );
 });
