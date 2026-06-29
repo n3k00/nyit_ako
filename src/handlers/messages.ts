@@ -7,8 +7,8 @@ import {
 } from "../db/local.ts";
 import { logger } from "../logging.ts";
 import {
-  AmbientLimiter,
-  shouldConsiderAmbientReply,
+  buildAmbientContextBundle,
+  decideAmbientReply,
 } from "../services/ambient.ts";
 import {
   fallbackResponse,
@@ -70,10 +70,7 @@ export function setupMessageHandler(
   llm: LlmProvider,
   rateLimiter: RateLimiter,
 ): void {
-  const ambientLimiter = new AmbientLimiter(
-    config.ambientMaxPerMinute,
-    config.ambientCooldownSeconds * 1000,
-  );
+  const recentAmbientBotReplies = new Map<number, string[]>();
 
   bot.on("message:text", async (ctx) => {
     if (
@@ -96,15 +93,14 @@ export function setupMessageHandler(
       ctx.chat.id,
       config.ambientContextMessages,
     );
-    const ambientCandidate = !directlyAddressed &&
-      config.ambientRepliesEnabled &&
-      shouldConsiderAmbientReply({
-        text: ctx.message.text,
-        recentMessageCount: ambientRecentMessages.length,
-        minMessageLength: config.ambientMinMessageLength,
-      });
-    const ambientEligible = ambientCandidate &&
-      ambientLimiter.check(ctx.chat.id);
+    const ambientBundleResult = !directlyAddressed &&
+        config.ambientRepliesEnabled
+      ? buildAmbientContextBundle(ambientRecentMessages, {
+        maxMessages: config.ambientContextMessages,
+        minMessages: config.ambientMinMessages,
+      })
+      : { eligible: false, reason: "directly_addressed_or_disabled" };
+    const ambientEligible = ambientBundleResult.eligible;
     const triggerKind = resolveTriggerKind({
       text: ctx.message.text,
       botUsername: config.botUsername,
@@ -136,6 +132,49 @@ export function setupMessageHandler(
       }
     }
 
+    if (triggerKind === "ambient") {
+      const bundle = ambientBundleResult.bundle;
+      if (!bundle) return;
+      const typingLoop = startTypingLoop(ctx);
+      try {
+        const decision = await decideAmbientReply(
+          llm,
+          bundle,
+          recentAmbientBotReplies.get(ctx.chat.id) || [],
+        );
+        if (!decision.ok || !decision.reply) {
+          logger.info("ambient_silence", {
+            chatId: ctx.chat.id,
+            reason: decision.reason,
+            category: bundle.category,
+          });
+          return;
+        }
+
+        await safeReply(ctx, decision.reply, ctx.message.message_id);
+        const previous = (recentAmbientBotReplies.get(ctx.chat.id) || []).slice(
+          -8,
+        );
+        previous.push(decision.reply);
+        recentAmbientBotReplies.set(ctx.chat.id, previous);
+        logger.info("bot_reply_sent", {
+          chatId: ctx.chat.id,
+          mode: "default",
+          triggerKind,
+          ambientCategory: bundle.category,
+          topicFingerprint: bundle.topicFingerprint,
+        });
+      } catch (error) {
+        logger.error("ambient_reply_failed", {
+          chatId: ctx.chat.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        typingLoop.stop();
+      }
+      return;
+    }
+
     const group = await getOrCreateGroup(ctx.chat.id, ctx.chat.title || "", {
       reply_length: config.defaultReplyLength,
       humor_level: config.defaultHumorLevel,
@@ -146,14 +185,10 @@ export function setupMessageHandler(
       ctx.message.text,
       config.botUsername,
     );
-    const mode = triggerKind === "ambient"
-      ? "default"
-      : selectResponseMode(cleanTriggerText, repliedText);
+    const mode = selectResponseMode(cleanTriggerText, repliedText);
     const recentMessages = getRecentMessages(
       ctx.chat.id,
-      triggerKind === "ambient"
-        ? config.ambientContextMessages
-        : config.recentContextLimit,
+      config.recentContextLimit,
     )
       .filter((message) => message.message_id !== ctx.message.message_id)
       .slice(-config.recentContextLimit);
@@ -180,16 +215,14 @@ export function setupMessageHandler(
         mode,
         group,
         triggerUser: ctx.from.username || ctx.from.first_name || "unknown",
-        triggerText: triggerKind === "ambient"
-          ? `Ambient join: ${ctx.message.text}`
-          : cleanTriggerText || ctx.message.text,
+        triggerText: cleanTriggerText || ctx.message.text,
         repliedText,
         recentMessages,
         groupProfile,
         memberGuidance,
         memories,
-        allowLongAnswer: triggerKind !== "ambient" && mode === "helpful",
-        ambient: triggerKind === "ambient",
+        allowLongAnswer: mode === "helpful",
+        ambient: false,
       });
       await safeReply(ctx, result.response, ctx.message.message_id);
       logger.info("bot_reply_sent", {

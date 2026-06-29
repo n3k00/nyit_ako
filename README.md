@@ -8,8 +8,8 @@ bounded.
 
 - Replies only on mention, direct reply to the bot, or supported command.
 - Uses recent bounded group context for natural Burmese replies.
-- Can naturally join normal group chatter, capped at two ambient replies per
-  minute by default.
+- Can naturally join normal group chatter only when deterministic context checks
+  and a grounded JSON LLM decision both pass.
 - Selects a deterministic response mode before calling the LLM: `banter`,
   `helpful`, `referee`, `supportive`, or `default`.
 - Supports optional private group/member guidance files without committing or
@@ -117,10 +117,11 @@ Examples:
 ## Ambient Group Replies
 
 Ambient replies are enabled by default and are meant to feel like a friend
-naturally joining the conversation, not a bot answering every line. The bot uses
-recent context, looks for useful signals such as questions or recommendations,
-and caps ambient replies with `AMBIENT_MAX_PER_MINUTE` plus
-`AMBIENT_COOLDOWN_SECONDS` (`60` seconds by default).
+naturally joining the conversation, not a bot answering every line. Silence is
+the default. The bot first builds a relevant recent-message bundle and only
+calls the LLM when there are at least three meaningful human messages, at least
+two speakers, and a coherent allowed topic category. The model must return valid
+grounded JSON before anything is sent.
 
 Long helpful answers are sent in Telegram-sized chunks instead of being cut off
 mid-response.

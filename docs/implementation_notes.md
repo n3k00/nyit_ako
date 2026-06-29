@@ -38,10 +38,14 @@ caller guidance in `data/local_db.json`.
 Ambient group replies are controlled by:
 
 - `AMBIENT_REPLIES_ENABLED`
-- `AMBIENT_MAX_PER_MINUTE`
-- `AMBIENT_COOLDOWN_SECONDS`
 - `AMBIENT_CONTEXT_MESSAGES`
-- `AMBIENT_MIN_MESSAGE_LENGTH`
+- `AMBIENT_MIN_MESSAGES`
+
+Ambient replies do not use a timer, random chance, cooldown, or per-topic quota.
+The default action is silence. The bot builds an `AmbientContextBundle`, scores
+the visible human conversation into an allowed category, then asks the LLM for a
+JSON-only decision. Invalid JSON, missing evidence, English-only replies,
+generic meme templates, ungrounded claims, and repeated wording are rejected.
 
 Telegram group privacy mode must be disabled through BotFather if ambient mode
 needs to see normal group messages.

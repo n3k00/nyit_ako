@@ -12,8 +12,9 @@ The bot replies only when:
 
 The bot ignores most normal group chatter, empty text, messages from bots, its
 own messages, unsupported message types, duplicate Telegram updates, and command
-text in the LLM message router. Ambient mode is capped per group and should not
-reply to every message.
+text in the LLM message router. Ambient mode should not reply to every message:
+it first requires a coherent multi-person human conversation, an allowed
+category, and a valid grounded JSON decision from the LLM.
 
 ## Modes
 
