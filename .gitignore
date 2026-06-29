@@ -1,0 +1,13 @@
+# Deno
+.deno/
+
+# Secrets
+.env
+data/
+
+# Logs and runtime
+bot.log
+bot.pid
+
+# Dependencies
+deps.lock

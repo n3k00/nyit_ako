@@ -1,0 +1,15 @@
+export const config = {
+  botToken: Deno.env.get("BOT_TOKEN") || "",
+  botUsername: Deno.env.get("BOT_USERNAME") || "NekoBot",
+  supabaseUrl: Deno.env.get("SUPABASE_URL") || "",
+  supabaseKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
+  mimoApiBase: Deno.env.get("MIMO_API_BASE") || "https://api.xiaomimimo.com/v1",
+  mimoApiKey: Deno.env.get("MIMO_API_KEY") || "",
+  mimoModel: Deno.env.get("MIMO_MODEL") || "mimo-v2.5-pro",
+  maxContextMessages: parseInt(Deno.env.get("MAX_CONTEXT_MESSAGES") || "50"),
+  rateLimitPerMinute: parseInt(Deno.env.get("RATE_LIMIT_PER_MINUTE") || "3"),
+  messageTtlHours: parseInt(Deno.env.get("MESSAGE_TTL_HOURS") || "168"),
+  defaultPersonality: Deno.env.get("DEFAULT_PERSONALITY") || "chill_friend",
+  defaultRoastLevel: parseInt(Deno.env.get("DEFAULT_ROAST_LEVEL") || "1"),
+  webhookPort: parseInt(Deno.env.get("WEBHOOK_PORT") || "8080"),
+};

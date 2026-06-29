@@ -1,0 +1,15 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read --watch src/bot.ts",
+    "serve": "deno run --allow-net --allow-env --allow-read src/bot.ts"
+  },
+  "imports": {
+    "@grammyjs/types": "https://deno.land/x/grammy_types@v1.16.0/mod.ts",
+    "grammy": "https://deno.land/x/grammy@v1.25.0/mod.ts",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true
+  }
+}
