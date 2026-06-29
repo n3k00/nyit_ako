@@ -66,20 +66,34 @@ export async function loadMemberInteractionGuidance(
   return {
     user_id: userId,
     chat_id: chatId,
-    preferred_reply_style: typeof match.preferred_reply_style === "string"
+    preferred_reply_style: match.preferred_reply_style === "short" ||
+        match.preferred_reply_style === "medium" ||
+        match.preferred_reply_style === "detailed" ||
+        match.preferred_reply_style === "practical" ||
+        match.preferred_reply_style === "playful"
       ? match.preferred_reply_style
       : undefined,
     humor_tolerance:
-      match.humor_tolerance === "low" || match.humor_tolerance === "medium" ||
-        match.humor_tolerance === "high"
+      match.humor_tolerance === "low" || match.humor_tolerance === "light" ||
+        match.humor_tolerance === "medium"
         ? match.humor_tolerance
         : undefined,
+    tech_detail_preference: match.tech_detail_preference === "basic" ||
+        match.tech_detail_preference === "practical" ||
+        match.tech_detail_preference === "detailed"
+      ? match.tech_detail_preference
+      : undefined,
     avoid_topics: stringArray(match.avoid_topics),
     response_length_preference: match.response_length_preference === "short" ||
-        match.response_length_preference === "medium"
+        match.response_length_preference === "medium" ||
+        match.response_length_preference === "detailed"
       ? match.response_length_preference
       : undefined,
-    likely_group_role: typeof match.likely_group_role === "string"
+    likely_group_role: match.likely_group_role === "activity_starter" ||
+        match.likely_group_role === "responder" ||
+        match.likely_group_role === "tech_helper" ||
+        match.likely_group_role === "quiet_member" ||
+        match.likely_group_role === "unknown"
       ? match.likely_group_role
       : undefined,
     confidence: typeof match.confidence === "number"

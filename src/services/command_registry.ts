@@ -11,7 +11,11 @@ export const PUBLIC_COMMANDS: BotCommandDefinition[] = [
   { command: "judge", description: "reply တစ်ခုကို verdict ပေး" },
   { command: "vibe", description: "group mood" },
   { command: "privacy", description: "data/privacy" },
+  { command: "learning", description: "ဘာတွေ learn လုပ်လဲ" },
+  { command: "myprofile", description: "ကိုယ့် reply-style hints" },
   { command: "forget", description: "ကိုယ့် data ဖျက်" },
+  { command: "dontroast", description: "ကိုယ့်ကို roast မလုပ်စေ" },
+  { command: "allowroast", description: "roast preference ပြန်ဖွင့်" },
 ];
 
 export const ADMIN_COMMANDS: BotCommandDefinition[] = [

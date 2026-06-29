@@ -23,7 +23,7 @@ Deno.test("prompt includes boundaries without exposing hidden profile language",
     groupProfile: { boundaries: ["no family insults"] },
     memberGuidance: {
       user_id: 2,
-      preferred_reply_style: "direct",
+      preferred_reply_style: "practical",
       avoid_topics: ["relationships"],
     },
     memories: [],

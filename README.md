@@ -8,6 +8,8 @@ bounded.
 
 - Replies only on mention, direct reply to the bot, or supported command.
 - Uses recent bounded group context for natural Burmese replies.
+- Learns safe reply-style hints from repeated group interactions without
+  training or modifying the LLM model.
 - Can naturally join normal group chatter only when deterministic context checks
   and a grounded JSON LLM decision both pass.
 - Selects a deterministic response mode before calling the LLM: `banter`,
@@ -98,9 +100,14 @@ curl http://localhost:8080/health
 - `/judge` - judge a replied-to message fairly.
 - `/vibe` - current group mood.
 - `/privacy` - retention and privacy behavior.
+- `/learning` - explain safe interaction learning and deletion controls.
+- `/myprofile` - show the caller's own safe reply-style hints.
 - `/forget` - clear the caller's stored interaction guidance.
+- `/dontroast` - store an explicit no-roast boundary for the caller.
+- `/allowroast` - remove the caller's no-roast boundary.
 - `/groupforget` - admin-only clear of group recent context and approved
-  memories.
+  memories, short-term group state, learned group profile, and group members'
+  learned guidance for that group.
 - `/botstyle` - show or update safe group settings.
 
 Examples:
@@ -113,6 +120,29 @@ Examples:
 ```
 
 ## Private Context Files
+
+## Interaction Learning
+
+The bot records temporary deterministic observations for normal human group
+messages, such as practical-question signals, detail requests, short-reply
+requests, light banter, activity starters, practical solutions, and explicit
+no-roast or allow-roast requests. It does not call the LLM just to learn.
+
+Profiles update only after repeated compatible evidence, except explicit
+boundaries such as `/dontroast`, which apply immediately. Learned guidance is
+stored as uncertain style hints with confidence, evidence count, timestamps, and
+expiry. Recent chat always overrides older hints in prompts.
+
+Local storage in `data/local_db.json` contains the equivalents of:
+
+- `interaction_observations`
+- `member_interaction_guidance`
+- `group_behavior_profile`
+- `short_term_group_state`
+- `explicit_memories`
+
+The repository ignores `data/` and `private_context/`; do not commit local
+learning data or API keys.
 
 ## Ambient Group Replies
 
@@ -160,7 +190,10 @@ deno task test
 - `src/services/prompt.ts` - prompt construction and response boundaries.
 - `src/services/llm.ts` - provider-agnostic LLM layer.
 - `src/services/cache.ts` - bounded short-lived context cache.
-- `src/db/local.ts` - local JSON group settings, memories, and safe guidance.
+- `src/services/learning.ts` - deterministic observation extraction and
+  confidence-based learning aggregation.
+- `src/db/local.ts` - local JSON group settings, memories, observations, group
+  state, group profile, and safe guidance.
 
 More detail is in:
 

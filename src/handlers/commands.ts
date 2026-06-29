@@ -3,9 +3,11 @@ import type { AppConfig } from "../config.ts";
 import {
   clearGroupData,
   clearMemberGuidance,
+  getGroupBehaviorProfile,
   getMemberGuidance,
   getMemories,
   getOrCreateGroup,
+  saveMemberGuidance,
   updateGroup,
 } from "../db/local.ts";
 import { clearMessages, getRecentMessages } from "../services/cache.ts";
@@ -21,6 +23,7 @@ import {
   loadMemberInteractionGuidance,
 } from "../services/profiles.ts";
 import { safeReply } from "../services/telegram.ts";
+import { guidanceSummary } from "../services/learning.ts";
 import type { ResponseMode } from "../types.ts";
 
 async function isGroupAdmin(ctx: Context): Promise<boolean> {
@@ -54,7 +57,11 @@ function helpText(config: AppConfig): string {
     "/judge - reply တစ်ခုကို verdict ပေး",
     "/vibe - group mood",
     "/privacy - data/privacy",
+    "/learning - bot ကဘာတွေ learn လုပ်လဲ",
+    "/myprofile - ကိုယ့် safe reply-style hints ကြည့်",
     "/forget - ကိုယ့် data ဖျက်",
+    "/dontroast - ကိုယ့်ကို roast မလုပ်စေ",
+    "/allowroast - roast preference ပြန်ဖွင့်",
   ].join("\n");
 }
 
@@ -77,7 +84,11 @@ async function commandLlmReply(
     ctx.chat.id,
     config.recentContextLimit,
   );
-  const groupProfile = await loadGroupBehaviorProfile(config.groupProfilePath);
+  const storedGroupProfile = getGroupBehaviorProfile(ctx.chat.id);
+  const fileGroupProfile = storedGroupProfile
+    ? null
+    : await loadGroupBehaviorProfile(config.groupProfilePath);
+  const groupProfile = storedGroupProfile || fileGroupProfile;
   const storedGuidance = await getMemberGuidance(ctx.chat.id, ctx.from.id);
   const fileGuidance = storedGuidance
     ? null
@@ -170,9 +181,29 @@ export function setupCommandHandlers(
     await ctx.reply(
       [
         "Recent group context ကို short-lived memory အနေနဲ့ပဲသိမ်းတယ်။",
-        "Approved memories နဲ့ safe interaction guidance ကို command နဲ့ဖျက်လို့ရတယ်။",
-        "/forget က ကိုယ့် guidance ကိုဖျက်တယ်။ /groupforget က admin-only group context/memory clear လုပ်တယ်။",
+        "Repeated interaction တွေကနေ reply-style preference hints လေးတွေ learn လုပ်နိုင်တယ်၊ AI model weights ကို train မလုပ်ဘူး။",
+        "Sensitive personal profiling မသိမ်းဘူး။ ကိုယ့် hints ကို /myprofile နဲ့ကြည့်ပြီး /forget နဲ့ဖျက်လို့ရတယ်။",
+        "/groupforget က admin-only group context/memory/learned group data clear လုပ်တယ်။",
       ].join("\n"),
+    );
+  });
+
+  bot.command("learning", async (ctx) => {
+    if (!isSupportedChat(ctx)) return;
+    await ctx.reply(
+      [
+        "Learning ဆိုတာ model training မဟုတ်ပါ။",
+        "Bot က repeated group interaction တွေကနေ reply style hints ပဲသိမ်းတယ်: short/detail ကြိုက်လား၊ practical answer ကြိုက်လား၊ light banter OK လား စတာမျိုး။",
+        "မသိမ်းတာတွေ: health/mental state, relationship, family, money, religion/politics/ethnicity/sexuality, insult labels, personality flaws.",
+        "ကိုယ့် hints ကို /myprofile နဲ့ကြည့်၊ /forget နဲ့ဖျက်၊ roast မလုပ်စေချင်ရင် /dontroast သုံးပါ။",
+      ].join("\n"),
+    );
+  });
+
+  bot.command("myprofile", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.from || !ctx.chat) return;
+    await ctx.reply(
+      guidanceSummary(getMemberGuidance(ctx.chat.id, ctx.from.id)),
     );
   });
 
@@ -180,6 +211,51 @@ export function setupCommandHandlers(
     if (!isGroup(ctx) || !ctx.from || !ctx.chat) return;
     await clearMemberGuidance(ctx.chat.id, ctx.from.id);
     await ctx.reply("သင့် interaction guidance ကိုဖျက်ပြီးပါပြီ။");
+  });
+
+  bot.command("dontroast", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.from || !ctx.chat) return;
+    const now = new Date().toISOString();
+    const current = getMemberGuidance(ctx.chat.id, ctx.from.id);
+    await saveMemberGuidance({
+      user_id: ctx.from.id,
+      chat_id: ctx.chat.id,
+      preferred_reply_style: current?.preferred_reply_style || "medium",
+      humor_tolerance: "low",
+      tech_detail_preference: current?.tech_detail_preference || "basic",
+      likely_group_role: current?.likely_group_role || "unknown",
+      avoid_topics: [
+        ...new Set([
+          ...(current?.avoid_topics || []),
+          "personal jokes or roasting",
+        ]),
+      ],
+      confidence: 1,
+      evidence_count: (current?.evidence_count || 0) + 1,
+      last_observed_at: now,
+      updated_at: now,
+      expires_at: new Date(Date.now() + 180 * 24 * 3600_000).toISOString(),
+      explicit_no_roast: true,
+    });
+    await ctx.reply("မှတ်ထားပြီ။ သင့်ကို personal roast/joke မလုပ်အောင်ထားမယ်။");
+  });
+
+  bot.command("allowroast", async (ctx) => {
+    if (!isGroup(ctx) || !ctx.from || !ctx.chat) return;
+    const current = getMemberGuidance(ctx.chat.id, ctx.from.id);
+    if (!current) {
+      await ctx.reply("ပြန်ဖွင့်စရာ no-roast preference မရှိသေးပါ။");
+      return;
+    }
+    await saveMemberGuidance({
+      ...current,
+      avoid_topics: (current.avoid_topics || []).filter((topic) =>
+        topic !== "personal jokes or roasting"
+      ),
+      explicit_no_roast: false,
+      updated_at: new Date().toISOString(),
+    });
+    await ctx.reply("OK, no-roast preference ကိုဖယ်ပြီးပါပြီ။");
   });
 
   bot.command("groupforget", async (ctx) => {

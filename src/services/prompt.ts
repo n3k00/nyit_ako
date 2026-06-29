@@ -62,6 +62,7 @@ function renderMemberGuidance(
 ): string {
   if (!guidance) return "No caller-specific guidance loaded.";
   const lines = [
+    "Caller response preferences, uncertain:",
     guidance.preferred_reply_style
       ? `Preferred reply style: ${guidance.preferred_reply_style}`
       : null,
@@ -71,11 +72,17 @@ function renderMemberGuidance(
     guidance.response_length_preference
       ? `Response length preference: ${guidance.response_length_preference}`
       : null,
+    guidance.tech_detail_preference
+      ? `Tech detail preference: ${guidance.tech_detail_preference}`
+      : null,
     guidance.likely_group_role
       ? `Likely group role hint: ${guidance.likely_group_role}`
       : null,
     guidance.avoid_topics?.length
       ? `Avoid topics: ${guidance.avoid_topics.join("; ")}`
+      : null,
+    guidance.explicit_no_roast
+      ? "Explicit preference: avoid personal roasting for this caller"
       : null,
   ].filter(Boolean);
   return lines.length > 0

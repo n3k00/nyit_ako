@@ -32,8 +32,16 @@ retry. Tests should use deterministic units or `MockLlmProvider`.
 ## Data Boundaries
 
 `src/services/cache.ts` stores short-lived recent context in memory.
-`src/db/local.ts` stores safe group settings, approved memories, and optional
-caller guidance in `data/local_db.json`.
+`src/db/local.ts` stores safe group settings, approved memories, deterministic
+interaction observations, learned caller guidance, short-term group state, and
+an expiring learned group behavior profile in `data/local_db.json`.
+
+`src/services/learning.ts` extracts cheap deterministic signals from normal
+human group messages. It does not call the LLM to learn. Member guidance changes
+only after repeated compatible evidence, except explicit boundaries such as
+no-roast requests. Scores decay over the observation TTL, guidance has its own
+expiry, and `/forget` plus `/groupforget` delete the relevant stored learning
+data.
 
 Ambient group replies are controlled by:
 

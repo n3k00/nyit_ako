@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import type { AppConfig } from "../config.ts";
 import {
+  getGroupBehaviorProfile,
   getMemberGuidance,
   getMemories,
   getOrCreateGroup,
@@ -192,9 +193,13 @@ export function setupMessageHandler(
     )
       .filter((message) => message.message_id !== ctx.message.message_id)
       .slice(-config.recentContextLimit);
-    const groupProfile = await loadGroupBehaviorProfile(
-      config.groupProfilePath,
-    );
+    const storedGroupProfile = getGroupBehaviorProfile(ctx.chat.id);
+    const fileGroupProfile = storedGroupProfile
+      ? null
+      : await loadGroupBehaviorProfile(
+        config.groupProfilePath,
+      );
+    const groupProfile = storedGroupProfile || fileGroupProfile;
     const storedGuidance = await getMemberGuidance(ctx.chat.id, ctx.from.id);
     const fileGuidance = storedGuidance
       ? null

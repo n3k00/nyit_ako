@@ -30,6 +30,6 @@ export function formatRuntimeStatus(
       last.httpStatus ? ` (${last.httpStatus})` : ""
     }`,
     `Context: enabled, recent limit ${config.recentContextLimit}`,
-    "Commands: /help /status /recap /judge /vibe /privacy /forget",
+    "Commands: /help /status /recap /judge /vibe /privacy /learning /myprofile /forget /dontroast /allowroast",
   ].join("\n");
 }
