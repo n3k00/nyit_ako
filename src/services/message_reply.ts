@@ -48,7 +48,7 @@ export async function generateModelReply(
     ambient: input.ambient,
   });
 
-  const maxTokens = input.allowLongAnswer ? 1200 : input.ambient ? 260 : 500;
+  const maxTokens = input.allowLongAnswer ? 1400 : input.ambient ? 260 : 900;
   let response = sanitizeResponse(
     await input.llm.complete(promptMessages, { maxTokens }),
     0,

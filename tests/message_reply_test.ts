@@ -107,7 +107,7 @@ Deno.test("helpful practical replies get a larger token budget", async () => {
     allowLongAnswer: true,
   });
 
-  assertEquals(llm.options[0]?.maxTokens, 1200);
+  assertEquals(llm.options[0]?.maxTokens, 1400);
   assert(
     llm.calls[0][0].content.includes("as long as needed"),
     "prompt should allow longer useful answers",

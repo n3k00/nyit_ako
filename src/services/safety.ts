@@ -27,8 +27,26 @@ export function sanitizeResponse(text: string, maxLength = 1000): string {
     .replace(/^\s*ကဲကဲ\s*referee\s*ဝင်ပေးမယ်[။.!]?\s*/i, "")
     .trim();
 
+  if (output.includes("�")) {
+    output = trimDamagedTrailingSentence(output);
+  }
+
   if (maxLength > 0 && output.length > maxLength) {
     output = `${output.slice(0, maxLength - 3).trim()}...`;
   }
   return output;
+}
+
+function trimDamagedTrailingSentence(text: string): string {
+  const cleaned = text.replace(/\uFFFD+/g, "").trim();
+  const lastSentenceEnd = Math.max(
+    cleaned.lastIndexOf("။"),
+    cleaned.lastIndexOf("."),
+    cleaned.lastIndexOf("!"),
+    cleaned.lastIndexOf("?"),
+  );
+  if (lastSentenceEnd >= Math.floor(cleaned.length * 0.45)) {
+    return cleaned.slice(0, lastSentenceEnd + 1).trim();
+  }
+  return cleaned;
 }

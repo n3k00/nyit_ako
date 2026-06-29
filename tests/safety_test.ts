@@ -17,3 +17,10 @@ Deno.test("sanitizeResponse does not truncate when maxLength is zero", () => {
   const text = "အဖြေ ".repeat(500);
   assertEquals(sanitizeResponse(text, 0), text.trim());
 });
+
+Deno.test("sanitizeResponse removes damaged trailing partial Burmese sentence", () => {
+  assertEquals(
+    sanitizeResponse("ဒီမှာ serious မဖြစ်သင့်ဘူး။ ကစားပွဲဆိ�", 0),
+    "ဒီမှာ serious မဖြစ်သင့်ဘူး။",
+  );
+});
