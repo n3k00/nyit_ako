@@ -37,28 +37,41 @@ export function isMentioned(text: string, botUsername: string): boolean {
 export function shouldHandleTextMessage(input: {
   text: string | undefined;
   botUsername: string;
+  botId?: number;
   fromBot: boolean;
+  replyFromBotId?: number;
   replyFromBotUsername?: string;
   ambientEligible?: boolean;
 }): boolean {
   const text = input.text?.trim();
   if (!text || input.fromBot || text.startsWith("/")) return false;
-  const repliedToBot = input.replyFromBotUsername?.toLowerCase() ===
-    input.botUsername.toLowerCase();
+  const repliedToBot = isReplyToThisBot(input);
   return repliedToBot || isMentioned(text, input.botUsername) ||
     input.ambientEligible === true;
 }
 
 type TriggerKind = "mention" | "reply_to_bot" | "ambient";
 
+function isReplyToThisBot(input: {
+  botUsername: string;
+  botId?: number;
+  replyFromBotId?: number;
+  replyFromBotUsername?: string;
+}): boolean {
+  if (input.botId && input.replyFromBotId === input.botId) return true;
+  return input.replyFromBotUsername?.toLowerCase() ===
+    input.botUsername.toLowerCase();
+}
+
 export function resolveTriggerKind(input: {
   text: string;
   botUsername: string;
+  botId?: number;
+  replyFromBotId?: number;
   replyFromBotUsername?: string;
   ambientEligible: boolean;
 }): TriggerKind | null {
-  const repliedToBot = input.replyFromBotUsername?.toLowerCase() ===
-    input.botUsername.toLowerCase();
+  const repliedToBot = isReplyToThisBot(input);
   if (repliedToBot) return "reply_to_bot";
   if (isMentioned(input.text, input.botUsername)) return "mention";
   if (input.ambientEligible) return "ambient";
@@ -72,6 +85,7 @@ export function setupMessageHandler(
   rateLimiter: RateLimiter,
 ): void {
   const recentAmbientBotReplies = new Map<number, string[]>();
+  const nextAmbientAttemptAt = new Map<number, number>();
 
   bot.on("message:text", async (ctx) => {
     if (
@@ -81,30 +95,37 @@ export function setupMessageHandler(
     if (ctx.message.text.trim().startsWith("/")) return;
 
     const replied = ctx.message.reply_to_message;
+    const replyFromBotId = replied?.from?.is_bot ? replied.from.id : undefined;
     const replyFromBotUsername = replied?.from?.is_bot
       ? replied.from.username
       : undefined;
     const directlyAddressed = resolveTriggerKind({
       text: ctx.message.text,
       botUsername: config.botUsername,
+      botId: ctx.me.id,
+      replyFromBotId,
       replyFromBotUsername,
       ambientEligible: false,
     });
+    const now = Date.now();
+    const ambientAllowed = now >= (nextAmbientAttemptAt.get(ctx.chat.id) || 0);
     const ambientRecentMessages = getRecentMessages(
       ctx.chat.id,
       config.ambientContextMessages,
     );
     const ambientBundleResult = !directlyAddressed &&
-        config.ambientRepliesEnabled
+        config.ambientRepliesEnabled && ambientAllowed
       ? buildAmbientContextBundle(ambientRecentMessages, {
         maxMessages: config.ambientContextMessages,
         minMessages: config.ambientMinMessages,
       })
-      : { eligible: false, reason: "directly_addressed_or_disabled" };
+      : { eligible: false, reason: "directly_addressed_disabled_or_cooldown" };
     const ambientEligible = ambientBundleResult.eligible;
     const triggerKind = resolveTriggerKind({
       text: ctx.message.text,
       botUsername: config.botUsername,
+      botId: ctx.me.id,
+      replyFromBotId,
       replyFromBotUsername,
       ambientEligible,
     });
@@ -113,7 +134,9 @@ export function setupMessageHandler(
       !shouldHandleTextMessage({
         text: ctx.message.text,
         botUsername: config.botUsername,
+        botId: ctx.me.id,
         fromBot: ctx.from.is_bot,
+        replyFromBotId,
         replyFromBotUsername,
         ambientEligible,
       })
@@ -136,6 +159,7 @@ export function setupMessageHandler(
     if (triggerKind === "ambient") {
       const bundle = ambientBundleResult.bundle;
       if (!bundle) return;
+      nextAmbientAttemptAt.set(ctx.chat.id, Date.now() + 30_000);
       try {
         const decision = await decideAmbientReply(
           llm,

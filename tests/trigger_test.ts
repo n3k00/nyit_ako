@@ -32,6 +32,29 @@ Deno.test("trigger gate accepts direct replies to the bot", () => {
   );
 });
 
+Deno.test("trigger gate accepts direct replies by bot id when username is absent", () => {
+  assertEquals(
+    shouldHandleTextMessage({
+      text: "ဒါကိုပြန်ရှင်းပြ",
+      botUsername: "NekoBot",
+      botId: 42,
+      fromBot: false,
+      replyFromBotId: 42,
+    }),
+    true,
+  );
+  assertEquals(
+    resolveTriggerKind({
+      text: "ဒါကိုပြန်ရှင်းပြ",
+      botUsername: "NekoBot",
+      botId: 42,
+      replyFromBotId: 42,
+      ambientEligible: false,
+    }),
+    "reply_to_bot",
+  );
+});
+
 Deno.test("trigger gate accepts ambient eligible messages", () => {
   assertEquals(
     shouldHandleTextMessage({
